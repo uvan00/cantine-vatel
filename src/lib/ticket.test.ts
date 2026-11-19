@@ -1,7 +1,7 @@
 // Essais des jetons, des codes et des règles de recharge : `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RECHARGE_MAX, RECHARGE_MIN, montantValable, peutAnnulerRecharge, peutConfirmer } from "./recharge.ts";
+import { ATTENTES_MAX, RECHARGE_MAX, RECHARGE_MIN, montantValable, peutAnnulerRecharge, peutConfirmer, peutDemander } from "./recharge.ts";
 import { lireCle, nettoyerCode, nouveauCode, nouveauCodeFamille, nouveauJeton, nouvelleReference } from "./ticket.ts";
 
 test("un jeton fait 32 caractères hexadécimaux et ne se répète pas", () => {
@@ -44,4 +44,10 @@ test("seule une demande en attente se confirme ou s'annule", () => {
   assert.equal(peutConfirmer({ etat: "confirmee" }), false);
   assert.equal(peutAnnulerRecharge({ etat: "en_attente" }), true);
   assert.equal(peutAnnulerRecharge({ etat: "annulee" }), false);
+});
+
+test("pas plus de trois demandes de recharge en attente par personne", () => {
+  assert.equal(peutDemander(0), true);
+  assert.equal(peutDemander(ATTENTES_MAX - 1), true);
+  assert.equal(peutDemander(ATTENTES_MAX), false);
 });

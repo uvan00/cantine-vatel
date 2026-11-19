@@ -23,6 +23,10 @@ export const LIBELLE_MOYEN: Record<MoyenRecharge, string> = {
   especes: "Espèces au comptoir",
 };
 
+/** Une même personne ne laisse pas plus de trois demandes en attente : la liste de la cantine reste lisible. */
+export const ATTENTES_MAX = 3;
+export const peutDemander = (enAttente: number) => enAttente < ATTENTES_MAX;
+
 /** Seule une demande en attente se confirme ou s'annule. */
 export const peutConfirmer = (r: { etat: string }) => r.etat === "en_attente";
 export const peutAnnulerRecharge = (r: { etat: string }) => r.etat === "en_attente";

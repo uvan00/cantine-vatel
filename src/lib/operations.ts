@@ -9,7 +9,7 @@ import { estUnJour, jourIso, jourLong } from "@/lib/jours";
 import { IDS_ALLERGENES, IDS_REGIMES, ecrireListe, lireListe } from "@/lib/listes";
 import { DESCRIPTION_MAX, NOM_MAX, noteValable, peutRetirer, portionsValables, prixValable } from "@/lib/menu";
 import { incompatibilites } from "@/lib/profil-alimentaire";
-import { RECHARGE_MAX, RECHARGE_MIN, montantValable, peutAnnulerRecharge, peutConfirmer } from "@/lib/recharge";
+import { ATTENTES_MAX, RECHARGE_MAX, RECHARGE_MIN, montantValable, peutAnnulerRecharge, peutConfirmer, peutDemander } from "@/lib/recharge";
 import { peutAnnuler, peutReserver, scanner, type Scan } from "@/lib/reservation";
 import type { Moi, Role } from "@/lib/session";
 import { mouvementRecharge, mouvementRemboursement, mouvementRepas, seuilValable, soldeDe } from "@/lib/solde";
@@ -210,6 +210,8 @@ export async function demanderRecharge(demandeur: Pick<Moi, "id" | "role">, bene
   if (!montantValable(montant)) return echec(phraseMontant);
   if (demandeur.role === "admin" || !(await peutAgirPour(demandeur, beneficiaireId))) return echec("Tu ne peux recharger que ton compte ou celui de ton enfant");
   if (!(await prisma.profil.findUnique({ where: { userId: beneficiaireId }, select: { userId: true } }))) return echec("Ce compte ne se recharge pas");
+  const enAttente = await prisma.recharge.count({ where: { demandeurId: demandeur.id, etat: "en_attente" } });
+  if (!peutDemander(enAttente)) return echec(`Tu as déjà ${ATTENTES_MAX} recharges en attente : annule-en une, ou laisse la cantine les confirmer`);
   const r = await prisma.$transaction(async (tx) =>
     tx.recharge.create({ data: { beneficiaireId, demandeurId: demandeur.id, montant, reference: await referenceLibre(tx), moyen: "pispi" } }));
   return { ok: true, id: r.id };
