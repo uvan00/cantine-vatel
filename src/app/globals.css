@@ -1,0 +1,499 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tablée sur le kit du tableau de bord de LinkAfr (16/11/2026), le même que Tirabo, Elite et INGEST :
+   jetons --h-* et --sn-* recopiés de ~/maboutique-espace-pub (src/app/globals.css), classes hb, h-champ,
+   h-liste, h-case telles quelles. Seul écart voulu : le vert feuille de bananier de Tablée à la place de
+   l'orange de LinkAfr (#1F7A4A en fond, blanc dessus 5,3:1 ; #185A33 pour écrire, 8,2:1 sur blanc ; en
+   sombre #86D6A5 pour écrire, 9,9:1). Le ticket de caisse (plus bas) est le seul style propre à Tablée.
+   Le tableau de bord (gérant, cuisine) est en sombre par défaut : classe `dark` sur <html>.
+   ───────────────────────────────────────────────────────────────────────── */
+:root { --logo-marque: #1F7A4A; }
+html.dark { --logo-marque: #86D6A5; }
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --radius: 0.625rem;
+}
+
+/* Les jetons vivent au niveau RACINE : les fenêtres et les menus déroulants sont montés hors de la coquille. */
+:root {
+  --sn-primary: 31 122 74;
+  --sn-primary-dark: 24 90 51;
+  --sn-surface: 255 255 255;
+  --sn-bg: 255 255 255;
+  --sn-side: 250 250 250;
+  /* Cadre du tableau de bord : le fond autour du panneau, les menus, la page. */
+  --sn-cadre: var(--sn-side);
+  --sn-menu: var(--sn-surface);
+  --sn-page: var(--sn-surface);
+  --sn-cta: 28 28 28;
+  --sn-cta-on: 255 255 255;
+  --sn-on: 28 28 28;
+  --sn-success: 40 167 69;
+  --sn-error: 211 47 47;
+  --sn-warning: 255 171 0;
+  --sn-info: 31 122 74;
+  --sn-secondary: 133 146 163;
+
+  /* ══ Composants du kit de LinkAfr (mesures relevées par LinkAfr le 07/11/2026) : leur violet devient
+     le vert de Tablée (#1F7A4A en fond, #185A33 au survol et pour écrire). ══ */
+  --h-marque: 31 122 74;
+  --h-marque-survol: 24 90 51;
+  --h-marque-texte: 24 90 51;
+  --h-marque-teinte: 31 122 74;
+  --h-teinte: 0.1;
+  --h-filet: rgb(0 0 0 / 0.1);
+  --h-filet-doux: rgb(0 0 0 / 0.05);
+  --h-survol: rgb(0 0 0 / 0.1);
+  --h-surface: rgb(0 0 0 / 0.05);
+  --h-surface-forte: rgb(0 0 0 / 0.2);
+  --h-texte-2: #58585e;
+  --h-texte-pale: #9d9ea4;
+  --h-repere: #797980;
+  --h-ombre-1: 0 2px 6px 0 rgb(0 0 0 / 0.1);
+  --h-ombre-2: 0 8px 24px 0 rgb(0 0 0 / 0.15);
+  --h-ombre-3: 0 8px 28px 0 rgb(0 0 0 / 0.25);
+  --h-danger: 190 16 37;
+  --h-danger-survol: 135 0 19;
+  --h-danger-texte: 190 16 37;
+  --h-danger-teinte: 231 58 71;
+  --h-succes: 0 122 73;
+  --h-succes-survol: 0 84 50;
+  --h-succes-texte: 0 122 73;
+  --h-succes-teinte: 0 158 91;
+  --h-alerte: 255 191 26;
+  --h-alerte-survol: 230 152 0;
+  --h-alerte-texte: 155 70 0;
+  --h-alerte-teinte: 230 152 0;
+  --h-fond-2: #f5f5f6;
+
+  --sn-high: 0.9;
+  --sn-medium: 0.7;
+  --sn-low: 0.4;
+  --sn-border: 0.12;
+
+  --sn-radius: 6px;
+  --sn-shadow-fixed: 0 2px 6px 0 rgb(var(--sn-on) / 0.08);
+  --sn-shadow-card: 0 3px 8px 0 rgb(var(--sn-on) / 0.1);
+
+  /* Colonnes de la cuisine (modèle validé le 16/11/2026) : la colonne un cran au-dessus de la page, la carte au-dessus. */
+  --colonne: var(--h-fond-2);
+  --carte: rgb(var(--sn-surface));
+}
+
+@theme inline {
+  --font-sans: var(--font-sneat), "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-sneat), "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--police-ticket), ui-monospace, monospace;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Les jetons du kit nommés pour les utilitaires (bg-surface, text-encre/70, bg-marque…), clair et sombre */
+  --color-encre: rgb(var(--sn-on));
+  --color-surface: rgb(var(--sn-surface));
+  --color-fond: rgb(var(--sn-bg));
+  --color-cadre: rgb(var(--sn-cadre));
+  --color-cote: rgb(var(--sn-side));
+  --color-marque: rgb(var(--h-marque));
+  --color-marque-texte: rgb(var(--h-marque-texte));
+  --color-sur-marque: #ffffff;
+  --color-attente: rgb(var(--h-alerte));
+  --color-attente-texte: rgb(var(--h-alerte-texte));
+  --color-erreur-texte: rgb(var(--h-danger-texte));
+  --color-texte-2: var(--h-texte-2);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* La coquille : fond, encre et police du kit (DM Sans, interlettrage normal). */
+.sneat {
+  background: rgb(var(--sn-bg));
+  color: rgb(var(--sn-on) / var(--sn-medium));
+  font-family: var(--font-sneat), "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: normal;
+}
+.sneat h1, .sneat h2, .sneat h3, .sneat h4, .sneat h5, .sneat h6 {
+  color: rgb(var(--sn-on) / var(--sn-high));
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+/* Animations du kit : page qui arrive (150 ms), fenêtre en fondu (225 ms), panneau qui arrive de côté (100 ms). */
+@keyframes sn-entree { from { opacity: 0.3; } to { opacity: 1; } }
+@keyframes sn-fondu { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sn-depuis-droite { from { opacity: 0; transform: translateX(20%); } to { opacity: 1; transform: none; } }
+@keyframes sn-depuis-gauche { from { opacity: 0; transform: translateX(-20%); } to { opacity: 1; transform: none; } }
+.sn-entree { animation: sn-entree 150ms linear backwards; }
+.sn-fondu { animation: sn-fondu 225ms cubic-bezier(0.4, 0, 0.2, 1) backwards; }
+.sn-depuis-droite { animation: sn-depuis-droite 100ms linear backwards; }
+.sn-depuis-gauche { animation: sn-depuis-gauche 100ms linear backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .sn-entree, .sn-fondu, .sn-depuis-droite, .sn-depuis-gauche { animation: none; }
+}
+
+/* Carte du kit : coins de 24 px, filet à 10 % de l'encre, sans ombre. */
+.sn-card {
+  border-radius: 24px;
+  background: rgb(var(--sn-surface));
+  border: 1px solid var(--h-filet);
+}
+.sn-fixed { box-shadow: var(--sn-shadow-fixed); }
+.sn-divide { border-color: rgb(var(--sn-on) / var(--sn-border)); }
+
+/* Chiffres alignés partout (montants, quantités, heures) */
+.chiffres { font-variant-numeric: tabular-nums; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   MODE SOMBRE (classe `dark` sur <html>, posée par le tableau de bord ; choix gardé dans le cookie
+   tablee.theme). Valeurs de LinkAfr : le fond le plus foncé, la page un cran au-dessus, les menus au-dessus.
+   ───────────────────────────────────────────────────────────────────────── */
+html.dark {
+  color-scheme: dark;
+  --sn-surface: 28 28 31;
+  --sn-bg: 17 17 19;
+  --sn-side: 22 22 25;
+  --sn-cadre: var(--sn-bg);
+  --sn-menu: var(--sn-surface);
+  --sn-page: var(--sn-side);
+  --sn-primary: 134 214 165;
+  --sn-primary-dark: 170 228 192;
+  --sn-info: 134 214 165;
+  /* Le texte de la marque s'éclaircit, les fonds pleins gardent #1F7A4A. */
+  --h-marque-texte: 134 214 165;
+  --h-teinte: 0.2;
+  --h-filet: rgb(255 255 255 / 0.1);
+  --h-filet-doux: rgb(255 255 255 / 0.05);
+  --h-survol: rgb(255 255 255 / 0.15);
+  --h-surface: rgb(255 255 255 / 0.1);
+  --h-surface-forte: rgb(255 255 255 / 0.25);
+  --h-texte-2: #9d9ea4;
+  --h-texte-pale: #797980;
+  --h-repere: #9d9ea4;
+  --h-ombre-1: 0 2px 6px 0 rgb(0 0 0 / 0.25);
+  --h-ombre-2: 0 8px 24px 0 rgb(0 0 0 / 0.25);
+  --h-ombre-3: 0 8px 28px 0 rgb(0 0 0 / 0.5);
+  --h-danger-texte: 255 131 129;
+  --h-succes-texte: 124 229 162;
+  --h-alerte-texte: 255 191 26;
+  --h-fond-2: #101011;
+  --sn-cta: 236 236 241;
+  --sn-cta-on: 17 17 19;
+  --sn-on: 236 236 241;
+  --sn-border: 0.1;
+  --sn-shadow-fixed: 0 1px 0 0 rgb(255 255 255 / 0.04), 0 2px 6px 0 rgb(0 0 0 / 0.4);
+  --sn-shadow-card: 0 0 0 1px rgb(255 255 255 / 0.06), 0 6px 16px -6px rgb(0 0 0 / 0.55);
+  --background: rgb(17 17 19);
+  --card: rgb(28 28 31);
+  --popover: rgb(28 28 31);
+  --colonne: rgb(28 28 31);
+  --carte: rgb(39 39 43);
+}
+html.dark body { background: rgb(var(--sn-bg)); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPOSANTS DU KIT, recopiés de LinkAfr (boutons hb, champs h-champ, listes h-liste,
+   « h-dropdown-list », « h-checkbox »). Dans la couche « components » : les classes d'une page passent devant.
+   ══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+  /* Bouton : 40 px, coins de 12, 14/700 ; 32 px en petit. */
+  .hb {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 24px;
+    border: 0;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 700;
+    letter-spacing: normal;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    background: var(--hb-fond);
+    color: var(--hb-texte);
+    box-shadow: var(--hb-filet, 0 0 0 1px transparent);
+    transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+  }
+  .hb:active { transform: scale(0.98); }
+  .hb:focus-visible { outline: 2px solid rgb(var(--h-marque-texte)); outline-offset: 2px; }
+  .hb:disabled, .hb[aria-disabled="true"] { pointer-events: none; opacity: 0.4; }
+  .hb--petit { min-height: 32px; padding: 6px 16px; }
+  .hb--plein { --hb-fond: rgb(var(--h-marque)); --hb-texte: #fff; }
+  .hb--encre { --hb-fond: rgb(var(--sn-cta)); --hb-texte: rgb(var(--sn-cta-on)); }
+  .hb--filet { --hb-fond: rgb(var(--sn-surface)); --hb-texte: rgb(var(--sn-on)); --hb-filet: 0 0 0 1px var(--h-filet); }
+  .hb--teinte { --hb-fond: var(--h-surface); --hb-texte: rgb(var(--sn-on)); }
+  .hb--texte { --hb-fond: transparent; --hb-texte: rgb(var(--sn-on)); }
+  .hb--texte-marque { --hb-fond: transparent; --hb-texte: rgb(var(--h-marque-texte)); }
+  .hb--danger { --hb-fond: rgb(var(--h-danger)); --hb-texte: #fff; }
+  .hb--filet-danger { --hb-fond: rgb(var(--sn-surface)); --hb-texte: rgb(var(--h-danger-texte)); --hb-filet: 0 0 0 1px var(--h-filet); }
+  .hb--teinte-danger { --hb-fond: rgb(var(--h-danger-teinte) / var(--h-teinte)); --hb-texte: rgb(var(--h-danger-texte)); }
+  .hb--texte-danger { --hb-fond: transparent; --hb-texte: rgb(var(--h-danger-texte)); }
+  .hb--succes { --hb-fond: rgb(var(--h-succes)); --hb-texte: #fff; }
+  .hb--alerte { --hb-fond: rgb(var(--h-alerte)); --hb-texte: #222225; }
+  @media (hover: hover) {
+    .hb--plein:hover { --hb-fond: rgb(var(--h-marque-survol)); }
+    .hb--encre:hover { --hb-fond: rgb(var(--sn-cta) / 0.8); }
+    .hb--filet:hover, .hb--teinte:hover, .hb--texte:hover { --hb-fond: var(--h-survol); }
+    .hb--texte-marque:hover { --hb-fond: rgb(var(--h-marque-teinte) / var(--h-teinte)); }
+    .hb--danger:hover { --hb-fond: rgb(var(--h-danger-survol)); }
+    .hb--filet-danger:hover, .hb--texte-danger:hover { --hb-fond: rgb(var(--h-danger-teinte) / var(--h-teinte)); }
+    .hb--teinte-danger:hover { --hb-fond: rgb(var(--h-danger-teinte) / 0.25); }
+    .hb--succes:hover { --hb-fond: rgb(var(--h-succes-survol)); }
+    .hb--alerte:hover { --hb-fond: rgb(var(--h-alerte-survol)); }
+  }
+
+  /* Champ : 48 px (40 en moyen), coins de 12, filet de 1 px ; au survol un liseré intérieur de 2 px,
+     au focus le filet à la couleur de la marque et un halo de 3 px. */
+  .h-champ {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 48px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 12px;
+    background: rgb(var(--sn-surface));
+    color: rgb(var(--sn-on));
+    font-size: 14px;
+    line-height: 24px;
+    font-weight: 400;
+    letter-spacing: normal;
+    outline: none;
+    box-shadow: 0 0 0 1px var(--h-filet);
+    transition: box-shadow 150ms ease;
+  }
+  .h-champ::placeholder { color: var(--h-texte-2); opacity: 1; }
+  @media (hover: hover) {
+    .h-champ:hover:not(:disabled):not(:focus):not([aria-expanded="true"]) { box-shadow: 0 0 0 1px var(--h-filet), inset 0 0 0 2px var(--h-filet-doux); }
+  }
+  .h-champ:focus, .h-champ:focus-visible, .h-champ[aria-expanded="true"] {
+    box-shadow: 0 0 0 1px rgb(var(--h-marque-texte)), 0 0 0 4px rgb(var(--h-marque-texte) / 0.28);
+  }
+  .h-champ:disabled { background: var(--h-filet-doux); color: var(--h-texte-pale); cursor: not-allowed; }
+  .h-champ--moyen { height: 40px; padding: 0 12px; }
+  textarea.h-champ { height: auto; min-height: 96px; padding: 12px 16px; resize: vertical; }
+
+  /* Liste d'un menu déroulant : coins de 12, filet intérieur, lignes de 10 px à coins de 8. */
+  .h-liste {
+    position: fixed;
+    z-index: 1000;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    max-height: 320px;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: rgb(var(--sn-surface));
+    box-shadow: inset 0 0 0 1px var(--h-filet), var(--h-ombre-2);
+    color: rgb(var(--sn-on));
+    font-family: var(--font-sneat), "DM Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 20px;
+    letter-spacing: normal;
+  }
+  .h-liste__option { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; padding: 10px; border-radius: 8px; cursor: pointer; text-align: start; }
+  .h-liste__option:last-child { margin-bottom: 0; }
+  .h-liste__option[aria-selected="true"] { background: var(--h-surface); }
+  .h-liste__option[data-actif="true"] { background: var(--h-survol); }
+  .h-liste__option[aria-disabled="true"] { color: var(--h-texte-pale); cursor: not-allowed; background: transparent; }
+  .h-liste__groupe { padding: 8px 10px 4px; font-size: 12px; line-height: 16px; color: var(--h-texte-2); }
+
+  /* Calendrier et heures (« h-calendar-panel », « h-time-panel ») */
+  .h-calendrier__tete { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 4px; margin-bottom: 8px; }
+  .h-calendrier__titre { font-size: 14px; line-height: 20px; font-weight: 600; }
+  .h-calendrier__nav { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; color: var(--h-texte-2); transition: background-color 150ms ease; }
+  .h-calendrier__grille { display: grid; grid-template-columns: repeat(7, 36px); column-gap: 2px; justify-content: center; }
+  .h-calendrier__semaine { padding: 8px 0; text-align: center; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--h-texte-2); }
+  .h-calendrier__jour {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 14px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+    color: rgb(var(--sn-on));
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .h-calendrier__jour[data-voisin], .h-calendrier__jour:disabled { color: var(--h-texte-2); }
+  .h-calendrier__jour:disabled { cursor: not-allowed; }
+  .h-calendrier__jour[aria-pressed="true"] { background: rgb(var(--sn-cta)); color: rgb(var(--sn-cta-on)); }
+  .h-calendrier__jour[data-auj]::after { content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; border-radius: 50%; background: currentColor; transform: translateX(-50%); }
+  .h-calendrier__jour[data-actif] { outline: 2px solid rgb(var(--h-marque-texte)); outline-offset: 2px; }
+  .h-creneaux { margin: 0; padding: 4px; list-style: none; overflow-y: auto; scrollbar-width: thin; }
+  .h-creneau { padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: pointer; transition: background-color 150ms ease; }
+  .h-creneau[data-actif] { background: var(--h-survol); }
+  .h-creneau[aria-selected="true"] { background: rgb(var(--sn-cta)); color: rgb(var(--sn-cta-on)); font-weight: 500; }
+  @media (hover: hover) {
+    .h-calendrier__nav:hover,
+    .h-calendrier__jour:not(:disabled):not([aria-pressed="true"]):hover,
+    .h-creneau:not([aria-selected="true"]):hover { background: var(--h-survol); }
+  }
+
+  /* Case à cocher (« h-checkbox ») : 20 px, coins de 4, filet de 1,5 px ; cochée à la couleur de la marque. */
+  .h-case {
+    appearance: none;
+    -webkit-appearance: none;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    border-radius: 4px;
+    background: transparent center / 14px no-repeat;
+    box-shadow: inset 0 0 0 1.5px var(--h-repere);
+    cursor: pointer;
+    transition: background-color 150ms ease, box-shadow 150ms ease;
+  }
+  .h-case:checked {
+    background-color: rgb(var(--h-marque-texte));
+    box-shadow: inset 0 0 0 1.5px rgb(var(--h-marque-texte));
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  }
+  html.dark .h-case:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2318181a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  }
+  .h-case:focus-visible { outline: 2px solid rgb(var(--h-marque-texte)); outline-offset: 2px; }
+  .h-case:disabled { cursor: not-allowed; opacity: 0.5; }
+}
+
+/* iOS zoome tout seul sur un champ de moins de 16px : on force 16px sur les écrans tactiles seulement. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   LE TICKET (le moment de Tablée) : l'addition comme un vrai ticket de caisse. Papier crème, chiffres en
+   chasse fixe, bord bas dentelé découpé par un masque. Il reste papier, même en mode sombre.
+   ───────────────────────────────────────────────────────────────────────── */
+.ticket {
+  --papier: #FFFDF8;
+  --dent: 10px;
+  /* Encre et vert d'écriture du clair, même quand le tableau de bord est en sombre : le papier reste clair. */
+  --sn-on: 31 28 23;
+  --h-marque-texte: 24 90 51;
+  position: relative;
+  background: var(--papier);
+  color: #1F1C17;
+  font-family: var(--police-ticket), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: calc(var(--dent) + 12px);
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--dent)) 100%;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--dent)) 100%;
+}
+/* Le masque coupe les ombres : l'ombre se pose sur un parent, qui suit la dentelure. */
+.ticket-ombre { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.06)) drop-shadow(0 8px 14px rgb(0 0 0 / 0.12)); }
+html.dark .ticket-ombre { filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.5)); }
+.ticket-filet { border-top: 1px dashed rgb(31 28 23 / 0.28); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   MENU DU CONVIVE (modèle validé le 17/11/2026) : l'ardoise du maquis, le rail des rubriques à gauche, et l'onglet
+   choisi qui se fond dans la carte blanche des plats, avec ses deux arrondis creusés.
+   ───────────────────────────────────────────────────────────────────────── */
+.ardoise {
+  background-color: #252524;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.006' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23t)'/%3E%3C/svg%3E");
+  color: rgb(255 255 255 / 0.9);
+}
+.onglet-carte { position: relative; background: #fff; border-radius: 28px 0 0 28px; }
+.onglet-carte::before, .onglet-carte::after { content: ""; position: absolute; right: 0; width: 24px; height: 24px; pointer-events: none; }
+.onglet-carte::before { top: -24px; background: radial-gradient(circle at 0 0, transparent 23.5px, #fff 24px); }
+.onglet-carte::after { bottom: -24px; background: radial-gradient(circle at 0 100%, transparent 23.5px, #fff 24px); }
+
+/* Mouvement réduit : rien n'est imposé. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,235 @@
+// Tablée, la cantine sans file : comptes (Better Auth), menu jour par jour, réservations avec ticket, journal des
+// mouvements d'argent, recharges, notes.
+// SQLite : un fichier, rien à lancer ; passer à Postgres ne change que `provider` et `url`.
+// SQLite ne connaît ni les listes ni les énumérations : les états sont des textes, les listes (allergènes, régimes) un
+// texte séparé par des virgules (src/lib/listes.ts).
+// Montants en francs CFA entiers. Jours en « AAAA-MM-JJ » : Abidjan est à l'heure GMT, aucun fuseau à gérer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ── Better Auth (e-mail et mot de passe) ─────────────────────────────────────
+
+model User {
+  id            String   @id
+  name          String
+  email         String
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  /// convive | parent | admin. Posé par le serveur, jamais reçu du navigateur.
+  role          String   @default("convive")
+
+  sessions           Session[]
+  accounts           Account[]
+  profil             Profil?
+  enfants            LienParent[]  @relation("parent")
+  parents            LienParent[]  @relation("enfant")
+  reservations       Reservation[]
+  mouvements         Mouvement[]
+  rechargesRecues    Recharge[]    @relation("beneficiaire")
+  rechargesDemandees Recharge[]    @relation("demandeur")
+  notes              Note[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ── La cantine ───────────────────────────────────────────────────────────────
+
+/// Le profil d'un convive (élève ou employé) : ce qu'il ne mange pas, son code famille, son seuil d'alerte.
+model Profil {
+  userId      String @id
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// eleve | employe
+  genre       String @default("eleve")
+  /// Classe ou service, en option.
+  classe      String @default("")
+  /// Identifiants d'allergènes séparés par des virgules (src/lib/listes.ts).
+  allergenes  String @default("")
+  /// Identifiants de régimes séparés par des virgules.
+  regimes     String @default("")
+  /// 6 caractères : le parent le saisit pour relier son enfant.
+  codeFamille String @unique
+  /// Sous ce solde, le convive et son parent sont prévenus.
+  seuilAlerte Int    @default(2000)
+}
+
+model LienParent {
+  id       String   @id @default(cuid())
+  parentId String
+  enfantId String
+  parent   User     @relation("parent", fields: [parentId], references: [id], onDelete: Cascade)
+  enfant   User     @relation("enfant", fields: [enfantId], references: [id], onDelete: Cascade)
+  creeLe   DateTime @default(now())
+
+  @@unique([parentId, enfantId])
+}
+
+model Plat {
+  id          String     @id @default(cuid())
+  nom         String
+  description String     @default("")
+  /// Adresse d'une image de public/plats (« /plats/attieke.jpg »), ou vide.
+  photo       String     @default("")
+  /// Prix proposé quand on l'ajoute à un jour.
+  prix        Int
+  allergenes  String     @default("")
+  porc        Boolean    @default(false)
+  vegetarien  Boolean    @default(false)
+  creeLe      DateTime   @default(now())
+  menus       MenuJour[]
+  notes       Note[]
+}
+
+/// Un plat au menu d'un jour, avec son prix de ce jour-là.
+model MenuJour {
+  id           String        @id @default(cuid())
+  jour         String
+  platId       String
+  plat         Plat          @relation(fields: [platId], references: [id])
+  prix         Int
+  /// Portions prévues ; vide : pas de limite.
+  portions     Int?
+  epuise       Boolean       @default(false)
+  reservations Reservation[]
+
+  @@unique([jour, platId])
+  @@index([jour])
+}
+
+model Reservation {
+  id         String      @id @default(cuid())
+  conviveId  String
+  convive    User        @relation(fields: [conviveId], references: [id], onDelete: Cascade)
+  menuJourId String
+  menuJour   MenuJour    @relation(fields: [menuJourId], references: [id])
+  jour       String
+  /// Le prix payé, figé à la réservation.
+  prix       Int
+  /// reservee | servie | annulee. « Non retirée » se calcule : réservée alors que son jour est passé.
+  etat       String      @default("reservee")
+  /// 32 caractères au hasard : c'est lui que porte le QR du ticket.
+  jeton      String      @unique
+  /// 6 caractères sans ambiguïté, à taper au comptoir si la caméra ne lit pas.
+  code       String
+  creeLe     DateTime    @default(now())
+  serviLe    DateTime?
+  annuleLe   DateTime?
+  mouvements Mouvement[]
+  note       Note?
+
+  @@index([conviveId, jour])
+  @@index([jour, code])
+}
+
+/// Le journal d'un compte : le solde est la somme des montants. Rien d'autre ne stocke le solde.
+model Mouvement {
+  id            String       @id @default(cuid())
+  conviveId     String
+  convive       User         @relation(fields: [conviveId], references: [id], onDelete: Cascade)
+  /// recharge (plus) | repas (moins) | remboursement (plus)
+  genre         String
+  /// Signé, en francs CFA entiers.
+  montant       Int
+  libelle       String
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  rechargeId    String?
+  recharge      Recharge?    @relation(fields: [rechargeId], references: [id])
+  creeLe        DateTime     @default(now())
+
+  @@index([conviveId, creeLe])
+}
+
+model Recharge {
+  id             String      @id @default(cuid())
+  beneficiaireId String
+  beneficiaire   User        @relation("beneficiaire", fields: [beneficiaireId], references: [id], onDelete: Cascade)
+  demandeurId    String
+  demandeur      User        @relation("demandeur", fields: [demandeurId], references: [id], onDelete: Cascade)
+  montant        Int
+  /// « R-7K2M » : écrite dans le QR de paiement, lue par la cantine.
+  reference      String      @unique
+  /// pispi | especes
+  moyen          String      @default("pispi")
+  /// en_attente | confirmee | annulee
+  etat           String      @default("en_attente")
+  /// L'administrateur qui a touché « Paiement reçu ».
+  confirmeePar   String?
+  creeLe         DateTime    @default(now())
+  confirmeeLe    DateTime?
+  annuleeLe      DateTime?
+  mouvements     Mouvement[]
+
+  @@index([etat, creeLe])
+}
+
+model Note {
+  id            String      @id @default(cuid())
+  reservationId String      @unique
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  platId        String
+  plat          Plat        @relation(fields: [platId], references: [id])
+  conviveId     String
+  convive       User        @relation(fields: [conviveId], references: [id], onDelete: Cascade)
+  /// 1 à 5
+  note          Int
+  mot           String      @default("")
+  creeLe        DateTime    @default(now())
+}
