@@ -1,7 +1,8 @@
 # Tablée, la cantine sans file : cahier des charges
 
 Hackathon Vatel « Application de gestion de cantine », samedi 21/11/2026, de 8 h à 18 h. Préparé le 19/11/2026.
-Ce document ne contient aucun code : seulement les choix. Tout le code s'écrit samedi, dans un dépôt vide (règle du guide).
+Ce document porte les choix. Le 19/11/2026, le propriétaire a indiqué que l'organisation accepte le code préparé : le code
+a été écrit à partir de ce jour, à plusieurs sessions en même temps, et l'historique des commits porte les vraies dates.
 Ce qui est écrit ici est déjà tranché : ne pas reposer au propriétaire une question qui a sa réponse plus bas.
 
 ## 1. Le cadre du hackathon
@@ -135,7 +136,7 @@ Une réservation est acceptée seulement si tout est vrai. Sinon, la raison est 
 - Pas de chiffre « gaspillage évité » : il faudrait une base de comparaison qu'on n'a pas. On montre réservés, servis,
   non retirés.
 
-## 5. Les données (à écrire samedi dans `prisma/schema.prisma`)
+## 5. Les données (`prisma/schema.prisma`)
 
 SQLite ne connaît ni les listes ni les énumérations : les états sont des textes, les listes (allergènes) un texte séparé
 par des virgules, lu et écrit par deux fonctions pures testées.
@@ -179,14 +180,14 @@ Versions déjà éprouvées ensemble sur cette machine (dans Tablée et dans le 
 | Node | 24 | Exécution, essais natifs en TypeScript |
 | Next.js, React | 16.3.6, 19.2.8 | Application (App Router, actions serveur) |
 | TypeScript | 5, mode strict | |
-| Tailwind CSS, shadcn/ui | 4 | Interface, avec les jetons de la section 9 |
+| Tailwind CSS | 4 | Interface, avec le kit et les jetons de la section 9 |
 | hugeicons-react | 0.4 | Icônes |
 | Prisma, SQLite | 6.19 | Base dans un fichier (`donnees/cantine.db`) |
 | Better Auth | 1.7.4 | Connexion par e-mail et mot de passe, adaptateur Prisma |
 | zod | 4 | Validation de chaque action |
 | qrcode | 1.5 | QR du ticket |
 | @pi-spi/qrcode | 1.0.0 | QR universel de paiement (BCEAO) |
-| @yudiel/react-qr-scanner | dernière | Lecture du QR par la caméra (repli : `qr-scanner`) |
+| jsqr | 1.4 | Lecture du QR par la caméra quand le navigateur n'a pas `BarcodeDetector` |
 
 Rangement du code :
 - `src/lib/*.ts` : les règles pures et leurs essais à côté (`solde`, `reservation`, `profil-alimentaire`, `ticket`, `format`, `jours`).
@@ -221,7 +222,7 @@ Pièges déjà rencontrés (à ne pas redécouvrir samedi) :
   `~/.agents/harness/produits/cantine.md`.
 - Rien ne part sans le mot « déploie » du propriétaire, pour chaque mise en ligne. Une seule construction Docker à la fois.
 - Les valeurs secrètes du serveur sont posées par le propriétaire ou fabriquées sur le serveur sans être affichées.
-- Image : Node 24, sortie autonome de Next, `prisma db push` au démarrage.
+- Image : Node 24, `next start`, `prisma db push` au démarrage, la base dans le volume `/donnees`.
 
 ## 9. Le design
 
@@ -263,9 +264,8 @@ Les écrans, en une ligne chacun :
 Écriture : français, « tu », ton chaleureux et un peu taquin. Aucun tiret long, tiret moyen ni point médian dans ce qui
 se lit ; guillemets « » ; pas de point d'exclamation ; pas de point à la fin d'un libellé ; aucun chiffre inventé.
 
-Composants : shadcn/ui (bibliothèque publique) habillé avec ces jetons. Le kit personnel de Tablée ne se recopie pas tant
-que l'organisation n'a pas répondu que le code préparé est accepté. Les captures de Tablée (`captures/`) peuvent servir de
-modèle pour l'œil, pas son code.
+Composants : le kit d'interface de Tablée (`sneat.tsx`, `fenetre.tsx`, `icons.tsx`), recopié tel quel, avec ces jetons.
+Le code préparé est accepté par l'organisation (dit par le propriétaire le 19/11/2026).
 
 ## 10. Les données de démonstration (`npm run demo`)
 
@@ -291,7 +291,7 @@ Bonus, seulement quand la consigne 12 est faite, dans cet ordre :
 4. Le rapport de la semaine, à imprimer et en CSV.
 5. Une suggestion rédigée par l'IA, si le propriétaire a posé lui-même la clé.
 
-## 12. Les règles du projet (à recopier samedi dans le `CLAUDE.md` du nouveau dépôt)
+## 12. Les règles du projet (reprises dans le `CLAUDE.md` du dépôt)
 
 - Tout le texte visible en français, en « tu », ton chaleureux et un peu taquin. Aucun tiret long, tiret moyen ni point
   médian ; guillemets « » ; montants par `fcfa()`.
