@@ -15,8 +15,8 @@ RUN apk add --no-cache openssl
 COPY --from=dependances /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# La construction ne lit ni la base ni les secrets : une adresse de base factice suffit à Prisma.
-ENV DATABASE_URL="file:/tmp/construction.db"
+# La construction ne lit ni la base ni les secrets : des valeurs factices suffisent, et elles ne passent pas dans l'image finale.
+ENV DATABASE_URL="file:/tmp/construction.db" BETTER_AUTH_SECRET="valeur-de-construction-sans-usage" BETTER_AUTH_URL="http://localhost:3700"
 RUN npx prisma generate && npx next build
 
 FROM node:24-alpine AS serveur
