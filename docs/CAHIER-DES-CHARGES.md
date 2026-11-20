@@ -111,11 +111,12 @@ Une réservation est acceptée seulement si tout est vrai. Sinon, la raison est 
 - Montants rapides : 2 000, 5 000, 10 000 F CFA, ou un autre montant entre 500 et 100 000.
 - Une demande de recharge reçoit une référence courte (« R-7K2M ») et attend son paiement.
 - Paiement en ligne par Cartflox (choix du propriétaire du 20/11/2026, qui remplace celui du 18/11 « jamais par Cartflox ») :
-  le formulaire SoftPay de Cartflox s'affiche dans la page, à nos couleurs et en « tu », pour la Côte d'Ivoire seulement
-  (pays CI, francs CFA, Wave, Orange Money, MTN MoMo, Moov Money). La page n'a que la clé publique. Le serveur relit chaque
-  paiement chez Cartflox avec la clé secrète (page qui relit, page de la cantine qui relit, webhook signé) et crédite le
-  montant de la recharge s'il est payé en francs CFA pour au moins ce montant ; sinon le paiement va dans « À regarder »,
-  chez la cantine. Une session ne sert qu'une recharge ; le crédit ne se fait qu'une fois.
+  en paiement NATIF, comme LinkAfr (son `paiement-natif.tsx` est le modèle) : notre formulaire, pour la Côte d'Ivoire
+  seulement (pays CI, francs CFA, les opérateurs que le compte ouvre : Wave, Orange Money et MTN MoMo le 20/11/2026).
+  Le serveur ouvre le paiement pour le montant de la recharge, débite le téléphone (code Orange #144*82#, appli Wave) et
+  relit le paiement avec la clé secrète (page qui relit, page de la cantine qui relit, webhook signé) ; il crédite le
+  montant de la recharge s'il est payé en francs CFA pour au moins ce montant, sinon le paiement va dans « À regarder »,
+  chez la cantine. Une session ne sert qu'une recharge ; le crédit ne se fait qu'une fois. La page n'a aucune clé.
 - En second choix, l'écran montre le QR universel PI-SPI, fabriqué avec la bibliothèque officielle de la BCEAO `@pi-spi/qrcode`, strictement
   standard (aucun champ ajouté) : l'adresse de paiement de la cantine (variable `PISPI_ALIAS`, jamais dans le dépôt), le
   montant et la référence. Le payeur le scanne avec son application habituelle.
@@ -193,7 +194,7 @@ Versions déjà éprouvées ensemble sur cette machine (dans Tablée et dans le 
 | zod | 4 | Validation de chaque action |
 | qrcode | 1.5 | QR du ticket |
 | @pi-spi/qrcode | 1.0.0 | QR universel de paiement (BCEAO) |
-| SoftPay de Cartflox | 2.0.0 | Paiement Mobile Money dans la page (script et cadre servis par Cartflox) |
+| API de Cartflox | v1 | Paiement Mobile Money natif : session, opérateurs, débit, statut, webhook |
 | jsqr | 1.4 | Lecture du QR par la caméra quand le navigateur n'a pas `BarcodeDetector` |
 
 Rangement du code :

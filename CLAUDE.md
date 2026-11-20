@@ -23,9 +23,10 @@ Harness du propriétaire : `~/.agents/harness/AGENTS.md`, puis la fiche `~/.agen
 - Direction validée par le propriétaire le 19/11/2026 (cahier des charges, section 9) : chaleureux, taquin, net ; le self
   à midi ; les deux moments riches sont le ticket repas et les photos des plats ; la signature est le tampon « SERVI ».
 - Pas d'icône « magie IA », pas de dégradé de couleur, pas d'emoji.
-- Recharge (choix du propriétaire du 20/11/2026) : Cartflox intégré dans la page (SoftPay), Côte d'Ivoire seulement, en
-  francs CFA (`src/lib/cartflox.ts`, pur et testé ; `src/lib/cartflox-serveur.ts`). La page n'a que la clé publique ; le
-  serveur relit chaque paiement chez Cartflox avec la clé secrète avant de créditer, une seule fois par recharge. Le QR
+- Recharge (choix du propriétaire du 20/11/2026) : Cartflox en paiement NATIF, comme LinkAfr (`paiement-natif.tsx` de
+  LinkAfr est le modèle) : notre formulaire, Côte d'Ivoire seulement, en francs CFA. Le serveur ouvre le paiement, liste les
+  opérateurs, débite le téléphone et relit le paiement avec la clé secrète avant de créditer, une seule fois par recharge
+  (`src/lib/cartflox.ts` et `src/lib/mobile-money.ts`, purs et testés ; `src/lib/cartflox-serveur.ts`). La page n'a aucune clé. Le QR
   universel PI-SPI (`src/lib/pispi.ts`) reste en second choix, confirmé à la main par la cantine (« Paiement reçu »).
   Les clés se posent avec `./scripts/cle-cartflox.sh` (jamais dans le code, jamais dans git, jamais copiées par un agent ;
   clés de test pour la démo).

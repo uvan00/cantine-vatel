@@ -100,15 +100,17 @@ L'écran et le serveur appliquent la même fonction : un bouton grisé dit exact
 
 ## La recharge : le Mobile Money dans la page, crédité tout seul
 
-**Paiement en ligne par Cartflox** (Côte d'Ivoire seulement, en francs CFA). Sur la page de la recharge, le formulaire de
-paiement de Cartflox (SoftPay) s'affiche à nos couleurs : on choisit Wave, Orange Money, MTN MoMo ou Moov Money, on tape son
-numéro de Côte d'Ivoire et on valide sur son téléphone. Le compte est crédité dès que le paiement passe, sans attendre la
-cantine.
+**Paiement en ligne par Cartflox, natif** (Côte d'Ivoire seulement, en francs CFA), comme le paiement natif de LinkAfr :
+pas de page de paiement hébergée ni de cadre, notre propre formulaire. On tape son numéro de Côte d'Ivoire, on choisit son
+opérateur parmi ceux que le compte Cartflox ouvre (le 20/11/2026 : Wave, Orange Money et MTN MoMo), et on valide sur son
+téléphone (code à usage unique pour Orange Money, l'appli pour Wave). Le compte est crédité dès que le paiement passe,
+sans attendre la cantine.
 
-- La page ne reçoit que la clé publique de Cartflox, qui permet seulement de créer et suivre un paiement.
-- Le serveur ne croit jamais la page : il relit chaque paiement chez Cartflox avec la clé secrète, qui ne quitte jamais le
-  serveur, et ne crédite que s'il est payé, en francs CFA, pour au moins le montant de la recharge. Il crédite toujours le
-  montant de la recharge, même si des frais ont été ajoutés au payeur.
+- Le serveur fait tout avec la clé secrète, qui ne quitte jamais le serveur : il ouvre le paiement pour le montant de la
+  recharge (lu dans la base, jamais reçu du navigateur), liste les opérateurs, déclenche le débit sur le téléphone, puis
+  relit le paiement chez Cartflox. La page n'a aucune clé.
+- Il ne crédite que si le paiement est passé, en francs CFA, pour au moins le montant de la recharge. Il crédite toujours
+  le montant de la recharge, même si des frais ont été ajoutés au payeur.
 - Une session de paiement ne sert qu'une recharge, pour toujours, et le crédit est une écriture conditionnelle : la page,
   le webhook et la cantine peuvent arriver en même temps, la recharge n'est créditée qu'une fois.
 - Trois chemins mènent au crédit : la page qui relit le paiement, la page de la cantine qui relit les paiements en cours,
@@ -129,9 +131,10 @@ de Wave l'ouvre (essai du 18/11/2026 sur un vrai téléphone) ; Orange l'annonce
 ./scripts/cle-cartflox.sh   # demande la clé publique puis la clé secrète, sans les afficher, et les écrit dans .env.local
 ```
 
-Les deux clés viennent de l'espace Cartflox (rubrique Développeurs) et doivent être du même mode. Clés de test
-(`af_test_...`) pour essayer et pour la démo : aucun argent ne bouge, et la page le dit. Clés de production
-(`af_live_...`) pour de vrais paiements. Sans clés, seul le QR universel est proposé. Pour le webhook, déclarer
+Les clés viennent de l'espace Cartflox (rubrique Développeurs). Seule la clé secrète sert ; la clé publique, si elle est
+posée, doit être du même mode. Clés de production (`af_live_...`) pour de vrais paiements. Avec des clés de test
+(`af_test_...`) ou un espace Cartflox encore en mode test, Cartflox ne débite jamais un téléphone : le débit direct ne
+marche qu'en production. Sans clé, seul le QR universel est proposé. Pour le webhook, déclarer
 `https://<adresse>/api/cartflox/webhook` dans l'espace Cartflox : Cartflox le signe avec la clé secrète.
 
 ## Ce qui se fait encore à la main, dit sans détour

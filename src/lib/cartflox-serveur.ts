@@ -1,36 +1,127 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { DEVISE_CARTFLOX, PAYS_CARTFLOX, modeDesCles, sessionValable, verdictPaiement, type ModeCartflox, type StatutSession } from "@/lib/cartflox";
+import { operateursIvoiriens, telephoneCartflox, type MoyenCartflox, type Operateur } from "@/lib/mobile-money";
+import { MARQUE } from "@/lib/marque";
 import { crediterParCartflox, lierSessionCartflox, noterSessionCartflox } from "@/lib/operations";
 
-// Cartflox côté serveur : les clés, la lecture du statut d'un paiement, et la décision de créditer.
-// La page de paiement (SoftPay, dans un cadre servi par Cartflox) ne reçoit que la clé PUBLIQUE : elle permet de créer et
-// de suivre un paiement, rien d'autre. Le serveur ne croit jamais la page sur parole : il relit chaque paiement chez
-// Cartflox avec la clé SECRÈTE, qui ne quitte jamais le serveur, avant de créditer quoi que ce soit.
-// Les clés arrivent par l'environnement (CARTFLOX_CLE_PUBLIQUE, CARTFLOX_CLE_SECRETE), posées par le propriétaire avec
-// scripts/cle-cartflox.sh en local, ou dans l'environnement du serveur. Jamais dans le code ni dans git.
+// Cartflox côté serveur, comme le paiement natif de LinkAfr : le serveur ouvre le paiement (le montant vient de la base),
+// liste les opérateurs de Côte d'Ivoire, déclenche le débit sur le téléphone, puis relit le paiement chez Cartflox avant
+// de créditer. Tout passe par la clé SECRÈTE, qui ne quitte jamais le serveur : la page n'a aucune clé.
+// La clé arrive par l'environnement (CARTFLOX_CLE_SECRETE, et CARTFLOX_CLE_PUBLIQUE en option), posée par le
+// propriétaire avec scripts/cle-cartflox.sh en local, ou dans l'environnement du serveur. Jamais dans le code ni dans git.
 
 const api = () => (process.env.CARTFLOX_API || "https://cartflox.com").replace(/\/+$/, "");
 
-/** Ce que la page a le droit de savoir pour afficher le paiement. Jamais la clé secrète. */
-export type ConfigCartflox = { clePublique: string; mode: ModeCartflox; api: string; pays: typeof PAYS_CARTFLOX; devise: typeof DEVISE_CARTFLOX };
+/** Ce que la page a le droit de savoir : le mode (essai ou production). Jamais une clé. */
+export type ConfigCartflox = { mode: ModeCartflox; pays: typeof PAYS_CARTFLOX; devise: typeof DEVISE_CARTFLOX };
 
-/** Le paiement en ligne est-il branché ? null si les deux clés ne sont pas là, ou ne vont pas ensemble. */
+/** Le paiement en ligne est-il branché ? null sans clé secrète valable (ou avec deux clés de modes différents). */
 export function configCartflox(): ConfigCartflox | null {
   const mode = modeDesCles(process.env.CARTFLOX_CLE_PUBLIQUE, process.env.CARTFLOX_CLE_SECRETE);
   if (!mode) return null;
-  return { clePublique: (process.env.CARTFLOX_CLE_PUBLIQUE ?? "").trim(), mode, api: api(), pays: PAYS_CARTFLOX, devise: DEVISE_CARTFLOX };
+  return { mode, pays: PAYS_CARTFLOX, devise: DEVISE_CARTFLOX };
 }
 
 /** La clé secrète, seulement quand la configuration est complète. Elle signe aussi les webhooks de Cartflox. */
 export const cleSecreteCartflox = () => (configCartflox() ? (process.env.CARTFLOX_CLE_SECRETE ?? "").trim() : null);
+
+/* ── Ouvrir un paiement, lister les opérateurs, débiter le téléphone ─────── */
+
+/** Un paiement ouvert depuis moins de 20 minutes, et encore en attente chez Cartflox, se réutilise. */
+const REUTILISABLE_MS = 20 * 60_000;
+
+/**
+ * Le paiement Cartflox où débiter cette recharge : le dernier ouvert s'il est récent et toujours en attente, sinon un
+ * nouveau. Le montant est celui de la recharge, lu dans la base : la page ne le choisit pas.
+ */
+export async function paiementPourRecharge(r: { id: string; montant: number; reference: string }, payeur: string, retour: string, maintenant = Date.now()): Promise<string> {
+  const dernier = await prisma.paiementCartflox.findFirst({ where: { rechargeId: r.id }, orderBy: { creeLe: "desc" }, select: { sessionId: true, creeLe: true } });
+  if (dernier && maintenant - dernier.creeLe.getTime() < REUTILISABLE_MS) {
+    const s = await lireStatut(dernier.sessionId).catch(() => null);
+    if (s && String(s.status ?? "").toUpperCase() === "PENDING") return dernier.sessionId;
+  }
+  return ouvrirNouveauPaiement(r, payeur, retour);
+}
+
+/** Ouvre un paiement Cartflox pour la recharge, et le relie à elle. */
+export async function ouvrirNouveauPaiement(r: { id: string; montant: number; reference: string }, payeur: string, retour: string): Promise<string> {
+  const cle = cleSecreteCartflox();
+  if (!cle) throw new Error("Cartflox n'est pas branché");
+  const res = await fetch(`${api()}/api/v1/checkout/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": cle },
+    body: JSON.stringify({
+      amount: r.montant,
+      currency: DEVISE_CARTFLOX,
+      customer_name: payeur.slice(0, 80),
+      description: `Recharge ${r.reference}, ${MARQUE.cantine}`,
+      metadata: { cantine_recharge: r.id, reference: r.reference, source: "cantine" },
+      merchant_name: MARQUE.cantine,
+      success_url: retour,
+      cancel_url: retour,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const d = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+  if (!res.ok || !d.id || !sessionValable(d.id)) throw new Error(d.error || `Cartflox a répondu ${res.status}`);
+  const lie = await lierSessionCartflox(r.id, d.id);
+  if (!lie.ok) throw new Error(lie.erreur);
+  return d.id;
+}
+
+/** Les opérateurs de Côte d'Ivoire que le compte Cartflox ouvre pour ce paiement, dans l'ordre habituel. */
+export async function operateursDuPaiement(sessionId: string): Promise<Operateur[]> {
+  const cle = cleSecreteCartflox();
+  if (!cle || !sessionValable(sessionId)) return [];
+  const res = await fetch(`${api()}/api/v1/checkout/sessions/${encodeURIComponent(sessionId)}/methods?country=${PAYS_CARTFLOX.toLowerCase()}`, {
+    headers: { "x-api-key": cle },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  }).catch(() => null);
+  if (!res?.ok) return [];
+  const d = (await res.json().catch(() => ({}))) as { methods?: MoyenCartflox[] };
+  return operateursIvoiriens(Array.isArray(d.methods) ? d.methods : [], api());
+}
+
+export type ReponseDebit = {
+  /** SUCCESS, PENDING, REQUIRE_OTP, APP_LINK, REDIRECT, EXPIRE (paiement plus payable), FAILED, UNAVAILABLE, SANDBOX… */
+  statut: string;
+  message: string | null;
+  /** L'adresse à ouvrir (Wave, certaines pages d'opérateur), ou null. */
+  redirection: string | null;
+  /** Le code à composer pour obtenir un code de paiement, quand l'opérateur le donne. */
+  ussd: string | null;
+};
+
+/** Déclenche le débit sur le téléphone : une demande de validation, un code à usage unique, ou l'appli de l'opérateur. */
+export async function debiterTelephone(sessionId: string, e: { gatewayId: string; methodCode: string; telephone: string; nom: string; otp?: string }): Promise<ReponseDebit> {
+  const res = await fetch(`${api()}/api/checkout/initiate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      transactionId: sessionId,
+      gatewayId: e.gatewayId.slice(0, 80),
+      methodCode: e.methodCode.slice(0, 80),
+      customerDetails: { name: e.nom.slice(0, 120), phone: telephoneCartflox(e.telephone), country: PAYS_CARTFLOX, otp: e.otp || undefined },
+    }),
+    signal: AbortSignal.timeout(35_000),
+  }).catch(() => null);
+  if (!res) return { statut: "FAILED", message: "Cartflox ne répond pas, réessaie dans un instant", redirection: null, ussd: null };
+  const d = (await res.json().catch(() => ({}))) as { success?: boolean; status?: string; message?: string; redirectUrl?: string; redirect_url?: string; ussdCode?: string; rawData?: { url?: string; message?: string } };
+  // 409 : ce paiement n'est plus payable (expiré, déjà échoué) ; on en ouvrira un autre.
+  if (res.status === 409) return { statut: "EXPIRE", message: d.message ?? null, redirection: null, ussd: null };
+  const statut = String(d.status || (d.success ? "PENDING" : "FAILED")).toUpperCase();
+  const redirection = d.redirectUrl ?? d.redirect_url ?? d.rawData?.url ?? null;
+  return { statut, message: d.message ?? d.rawData?.message ?? null, redirection: redirection && /^https?:\/\//.test(redirection) ? redirection : null, ussd: d.ussdCode ?? null };
+}
 
 /** Le statut d'un paiement chez Cartflox ; null si Cartflox ne le connaît pas pour ces clés (autre compte, autre mode). */
 async function lireStatut(sessionId: string): Promise<StatutSession | null> {
   const cle = cleSecreteCartflox();
   if (!cle) throw new Error("Cartflox n'est pas branché");
   const res = await fetch(`${api()}/api/v1/checkout/sessions/${encodeURIComponent(sessionId)}/status`, {
-    headers: { Authorization: `Bearer ${cle}` },
+    headers: { "x-api-key": cle },
     cache: "no-store",
     signal: AbortSignal.timeout(8000),
   });

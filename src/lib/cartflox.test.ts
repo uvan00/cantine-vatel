@@ -15,9 +15,14 @@ test("deux clés du même mode vont ensemble", () => {
   assert.equal(modeDesCles(` ${PUB_TEST} `, `${SEC_TEST}\n`), "test");
 });
 
-test("Cartflox reste éteint si une clé manque, est mal formée ou mêle les deux modes", () => {
-  assert.equal(modeDesCles(undefined, SEC_TEST), null);
+test("la clé publique est facultative : la clé secrète suffit", () => {
+  assert.equal(modeDesCles(undefined, SEC_TEST), "test");
+  assert.equal(modeDesCles("", SEC_LIVE), "live");
+});
+
+test("Cartflox reste éteint si la clé secrète manque, si une clé est mal formée ou si elles mêlent les deux modes", () => {
   assert.equal(modeDesCles(PUB_TEST, ""), null);
+  assert.equal(modeDesCles(PUB_TEST, undefined), null);
   assert.equal(modeDesCles(PUB_TEST, SEC_LIVE), null);
   assert.equal(modeDesCles(PUB_LIVE, SEC_TEST), null);
   assert.equal(modeDesCles(SEC_TEST, PUB_TEST), null);

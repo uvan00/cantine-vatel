@@ -5,7 +5,7 @@ import { configCartflox } from "@/lib/cartflox-serveur";
 import { Identifiant, rechargeEnDirect, rechargeVisiblePar } from "@/lib/donnees-parent";
 import { de } from "@/lib/format";
 import { pispiAvecMontant, qrRecharge } from "@/lib/pispi";
-import { exiger, origine, prenomDe } from "@/lib/session";
+import { exiger, prenomDe } from "@/lib/session";
 import { Attente } from "./attente";
 
 export const metadata: Metadata = { title: "Recharge" };
@@ -31,7 +31,7 @@ export default async function PageRecharge({ params }: { params: Promise<{ id: s
   ]);
 
   const cfg = r.etat === "en_attente" ? configCartflox() : null;
-  const cartflox = cfg ? { api: cfg.api, clePublique: cfg.clePublique, mode: cfg.mode, nom: m.nom, retour: `${await origine()}/recharger/${r.id}` } : null;
+  const cartflox = cfg ? { mode: cfg.mode } : null;
 
   return (
     <>

@@ -3,18 +3,18 @@
 import { useState, useTransition } from "react";
 import { useConfirmation } from "@/components/fenetre";
 import { Check, Copy, Info } from "@/components/icons";
-import { PaiementCartflox } from "@/components/paiement-cartflox";
+import { PaiementMobileMoney } from "@/components/paiement-mobile-money";
 import { QrRecharge } from "@/components/qr-recharge";
 import { SAlert, SBtn, SBtnLink, SChip, type Ton } from "@/components/sneat";
 import { useDirect } from "@/hooks/use-direct";
 import type { RechargeEnDirect } from "@/lib/donnees-parent";
 import { fcfa } from "@/lib/format";
 import { LIBELLE_ETAT_RECHARGE, type EtatRecharge } from "@/lib/recharge";
-import { annulerMaRecharge, lierPaiement, verifierMonPaiement } from "../actions";
+import { annulerMaRecharge } from "../actions";
 
-// La page d'une recharge, relue toutes les 3 secondes : tant qu'elle attend, le paiement Mobile Money par Cartflox
-// (quand il est branché), le QR universel en second choix, et de quoi l'annuler ; dès que le paiement est confirmé,
-// « Reçue » et le nouveau solde. Rien ici ne décide : l'état vient du serveur, qui relit chaque paiement chez Cartflox.
+// La page d'une recharge, relue toutes les 3 secondes : tant qu'elle attend, le paiement Mobile Money natif par Cartflox
+// (quand il est branché, comme dans LinkAfr), le QR universel en second choix, et de quoi l'annuler ; dès que le paiement
+// est confirmé, « Reçue » et le nouveau solde. Rien ici ne décide : l'état vient du serveur, qui relit chaque paiement.
 
 const TON: Record<EtatRecharge, Ton> = { en_attente: "warning", confirmee: "success", annulee: "secondary" };
 
@@ -58,8 +58,8 @@ function Reference({ reference }: { reference: string }) {
   );
 }
 
-/** Ce que la page sait du paiement en ligne : jamais la clé secrète. */
-export type CartfloxPage = { api: string; clePublique: string; mode: "test" | "live"; nom: string; retour: string };
+/** Ce que la page sait du paiement en ligne : son mode, jamais une clé. */
+export type CartfloxPage = { mode: "test" | "live" };
 
 export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, cartflox, aMoi, soldeDeQui, retour, nouvelle }: {
   id: string;
@@ -85,18 +85,6 @@ export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, ca
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, demarrer] = useTransition();
   const { etat } = direct;
-  const [verification, setVerification] = useState<string | null>(null);
-
-  // Le cadre a créé un paiement : le serveur le relie à la recharge (on le relira même si la page se ferme).
-  const surSession = (sessionId: string) => { void lierPaiement(id, sessionId); };
-  // Le cadre annonce la réussite : le serveur relit le paiement chez Cartflox avant de créditer.
-  const surReussite = async (sessionId: string) => {
-    setVerification("Paiement reçu par Cartflox, on vérifie et on crédite");
-    const r = await verifierMonPaiement(id, sessionId).catch(() => null);
-    await relire();
-    if (r && "etat" in r && r.etat === "confirmee") setVerification(null);
-    else setVerification("Paiement annoncé par Cartflox : la vérification continue, cette page se met à jour toute seule");
-  };
 
   const annuler = async () => {
     const oui = await confirmer({
@@ -138,11 +126,9 @@ export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, ca
             <h2 className="text-[18px] leading-6">Payer avec ton Mobile Money</h2>
             {cartflox.mode === "test" && <SChip tone="warning" size="sm">Mode essai, aucun argent réel</SChip>}
           </div>
-          <p className="mt-1 text-[14px] leading-5 text-texte-2">Wave, Orange Money, MTN MoMo ou Moov Money, avec un numéro de Côte d&apos;Ivoire</p>
-          {verification && <p aria-live="polite" className="mt-3 text-[14px] leading-5 font-medium text-encre/90">{verification}</p>}
-          <div className="mt-4 rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-2">
-            <PaiementCartflox api={cartflox.api} clePublique={cartflox.clePublique} montant={montant} rechargeId={id} reference={reference}
-              nom={cartflox.nom} retour={cartflox.retour} onSession={surSession} onReussi={(s) => { void surReussite(s); }} />
+          <p className="mt-1 text-[14px] leading-5 text-texte-2">Avec un numéro de Côte d&apos;Ivoire : la demande de paiement arrive sur ton téléphone</p>
+          <div className="mt-4 rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-4">
+            <PaiementMobileMoney rechargeId={id} montant={montant} onVerifie={relire} />
           </div>
         </section>
       )}

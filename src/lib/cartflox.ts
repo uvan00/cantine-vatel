@@ -1,7 +1,8 @@
 // Cartflox, la passerelle de paiement de l'écosystème, branchée dans la recharge (choix du propriétaire du 20/11/2026) :
-// Mobile Money de Côte d'Ivoire seulement (Wave, Orange Money, MTN MoMo, Moov Money), en francs CFA.
-// Ce fichier ne contient que des règles pures, testées par `npm test` : quelles clés vont ensemble, ce qu'on fait d'un
-// statut de paiement lu chez Cartflox, et si un webhook est bien signé. Les appels réseau sont dans cartflox-serveur.ts.
+// Mobile Money de Côte d'Ivoire seulement, en francs CFA, payé dans notre propre formulaire, comme le paiement natif de
+// LinkAfr (le serveur ouvre le paiement, liste les opérateurs, déclenche le débit sur le téléphone).
+// Ce fichier ne contient que des règles pures, testées par `npm test` : les clés, le numéro, les opérateurs, ce qu'on
+// fait d'un statut de paiement, et si un webhook est bien signé. Les appels réseau sont dans cartflox-serveur.ts.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { fcfa } from "./format.ts";
 
@@ -12,16 +13,18 @@ export const DEVISE_CARTFLOX = "XOF";
 export type ModeCartflox = "test" | "live";
 
 /**
- * Le mode de deux clés qui vont ensemble : publique et secrète de test (af_test_pub_, af_test_sec_), ou de production
- * (af_live_pub_, af_live_sec_). null si l'une manque, si elles ne se ressemblent pas, ou si elles mêlent les deux modes :
- * Cartflox reste alors éteint plutôt que de payer d'un côté et vérifier de l'autre.
+ * Le mode des clés : test (af_test_sec_) ou production (af_live_sec_). Seule la clé secrète sert, et elle reste sur le
+ * serveur. La clé publique est facultative ; si elle est là, elle doit être du même mode. null si la clé secrète manque,
+ * n'a pas la bonne forme, ou si les deux clés mêlent les deux modes : Cartflox reste alors éteint.
  */
 export function modeDesCles(publique: string | undefined, secrete: string | undefined): ModeCartflox | null {
   const p = (publique ?? "").trim(), s = (secrete ?? "").trim();
-  const m = /^af_(test|live)_pub_[A-Za-z0-9]{16,}$/.exec(p);
   const n = /^af_(test|live)_sec_[A-Za-z0-9]{16,}$/.exec(s);
-  if (!m || !n || m[1] !== n[1]) return null;
-  return m[1] as ModeCartflox;
+  if (!n) return null;
+  if (!p) return n[1] as ModeCartflox;
+  const m = /^af_(test|live)_pub_[A-Za-z0-9]{16,}$/.exec(p);
+  if (!m || m[1] !== n[1]) return null;
+  return n[1] as ModeCartflox;
 }
 
 /** Un identifiant de session tel que Cartflox les fabrique (lettres minuscules et chiffres). */
