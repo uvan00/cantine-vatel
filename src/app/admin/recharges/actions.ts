@@ -4,7 +4,9 @@ import { z } from "zod";
 import { soldeDuCompte, soldesDesComptes } from "@/lib/donnees";
 import { comptesDesConvives, type VueCompteTrouve } from "@/lib/donnees-admin";
 import { fcfa } from "@/lib/format";
-import { confirmerRecharge, rechargerEnEspeces } from "@/lib/operations";
+import { verifierRecharge } from "@/lib/cartflox-serveur";
+import { confirmerRecharge, crediterParCartflox, rechargerEnEspeces } from "@/lib/operations";
+import { prisma } from "@/lib/db";
 import { RECHARGE_MAX, RECHARGE_MIN } from "@/lib/recharge";
 import { autorise } from "@/lib/session";
 import { chercher } from "./recherche";
@@ -59,4 +61,29 @@ export async function chercherConvives(recherche: string): Promise<VueCompteTrou
   const trouves = chercher(await comptesDesConvives(), v.data, TROUVES_AU_PLUS);
   const soldes = await soldesDesComptes(trouves.map((c) => c.id));
   return trouves.map((c) => ({ ...c, solde: soldes.get(c.id) ?? 0 }));
+}
+
+/** « Vérifier chez Cartflox » : relit tout de suite les paiements en ligne d'une demande, et la crédite s'ils sont passés. */
+export async function verifierChezCartflox(id: string): Promise<{ ok: true; etat: string } | Echec> {
+  if (!(await autorise("admin"))) return REFUS;
+  const v = Id.safeParse(id);
+  if (!v.success) return { ok: false, erreur: "Recharge introuvable" };
+  const etat = await verifierRecharge(v.data, { force: true });
+  return etat ? { ok: true, etat } : { ok: false, erreur: "Recharge introuvable" };
+}
+
+/**
+ * La cantine crédite à la main un paiement Cartflox qui ne s'est pas crédité tout seul (montant inattendu, ou arrivé
+ * après l'annulation de la demande), après l'avoir regardé dans son espace Cartflox. Le montant crédité est celui de la
+ * demande, lu dans la base.
+ */
+export async function crediterPaiement(sessionId: string): Promise<{ ok: true } | Echec> {
+  const admin = await autorise("admin");
+  if (!admin) return REFUS;
+  const v = z.string().regex(/^[a-z0-9]{12,40}$/).safeParse(sessionId);
+  if (!v.success) return { ok: false, erreur: "Paiement introuvable" };
+  const p = await prisma.paiementCartflox.findUnique({ where: { sessionId: v.data }, select: { rechargeId: true, statut: true } });
+  if (!p) return { ok: false, erreur: "Paiement introuvable" };
+  if (p.statut !== "SUCCESS") return { ok: false, erreur: "Cartflox ne dit pas que ce paiement est passé" };
+  return crediterParCartflox(p.rechargeId, v.data, admin.id, Date.now(), true);
 }

@@ -297,6 +297,24 @@ export type VueRechargeEnAttente = {
   demandeur: string | null;
   montant: number;
   creeLe: string;
+  /** Le dernier paiement Cartflox ouvert pour cette demande : son statut et sa remarque. null sans paiement en ligne. */
+  cartflox: { statut: string; remarque: string | null } | null;
+};
+
+/**
+ * Un paiement Cartflox qui demande l'œil de la cantine : payé mais pas crédité tout seul (montant inattendu, ou arrivé
+ * après l'annulation de la demande).
+ */
+export type VuePaiementAVerifier = {
+  sessionId: string;
+  rechargeId: string;
+  reference: string;
+  beneficiaire: string;
+  /** Le montant de la recharge, et ce que Cartflox dit avoir encaissé. */
+  montant: number;
+  encaisse: number | null;
+  etatRecharge: "en_attente" | "annulee";
+  remarque: string;
 };
 
 export type VueRechargePassee = {
@@ -314,6 +332,7 @@ export type VueRecharges = {
   /** L'instant de la lecture, à l'heure du serveur (pour « il y a 4 min »). */
   maintenant: number;
   enAttente: VueRechargeEnAttente[];
+  aVerifier: VuePaiementAVerifier[];
   dernieres: VueRechargePassee[];
 };
 
@@ -322,10 +341,17 @@ const DERNIERES = 20;
 /** Les demandes qui attendent la cantine (la plus ancienne d'abord) et les vingt dernières recharges closes. */
 export async function vueRecharges(maintenant: number): Promise<VueRecharges> {
   const beneficiaire = { select: { name: true, profil: { select: { classe: true, genre: true } } } } as const;
-  const [attente, confirmees, annulees] = await Promise.all([
-    prisma.recharge.findMany({ where: { etat: "en_attente" }, orderBy: { creeLe: "asc" }, include: { beneficiaire, demandeur: { select: { name: true } } } }),
+  const dernierPaiement = { orderBy: { creeLe: "desc" }, take: 1, select: { statut: true, remarque: true } } as const;
+  const [attente, confirmees, annulees, aVerifier] = await Promise.all([
+    prisma.recharge.findMany({ where: { etat: "en_attente" }, orderBy: { creeLe: "asc" }, include: { beneficiaire, demandeur: { select: { name: true } }, paiements: dernierPaiement } }),
     prisma.recharge.findMany({ where: { etat: "confirmee" }, orderBy: { confirmeeLe: "desc" }, take: DERNIERES, include: { beneficiaire } }),
     prisma.recharge.findMany({ where: { etat: "annulee" }, orderBy: { annuleeLe: "desc" }, take: DERNIERES, include: { beneficiaire } }),
+    prisma.paiementCartflox.findMany({
+      where: { statut: "SUCCESS", remarque: { not: null }, recharge: { etat: { in: ["en_attente", "annulee"] } } },
+      orderBy: { luLe: "desc" },
+      take: DERNIERES,
+      include: { recharge: { select: { id: true, reference: true, montant: true, etat: true, beneficiaire: { select: { name: true } } } } },
+    }),
   ]);
   const dernieres = [...confirmees, ...annulees]
     .map((r): VueRechargePassee => ({
@@ -333,7 +359,7 @@ export async function vueRecharges(maintenant: number): Promise<VueRecharges> {
       reference: r.reference,
       beneficiaire: r.beneficiaire.name,
       montant: r.montant,
-      moyen: r.moyen === "especes" ? "especes" : "pispi",
+      moyen: r.moyen === "especes" ? "especes" : r.moyen === "cartflox" ? "cartflox" : "pispi",
       etat: r.etat === "annulee" ? "annulee" : "confirmee",
       quand: (r.confirmeeLe ?? r.annuleeLe ?? r.creeLe).toISOString(),
     }))
@@ -341,7 +367,8 @@ export async function vueRecharges(maintenant: number): Promise<VueRecharges> {
     .slice(0, DERNIERES);
   return {
     maintenant,
-    enAttente: attente.map((r): VueRechargeEnAttente => ({
+    // Une demande dont le paiement Cartflox est passé sans pouvoir se créditer tout seul est dans « À regarder », pas ici.
+    enAttente: attente.filter((r) => !(r.paiements[0]?.statut === "SUCCESS" && r.paiements[0]?.remarque)).map((r): VueRechargeEnAttente => ({
       id: r.id,
       reference: r.reference,
       beneficiaire: r.beneficiaire.name,
@@ -349,6 +376,17 @@ export async function vueRecharges(maintenant: number): Promise<VueRecharges> {
       demandeur: r.demandeurId === r.beneficiaireId ? null : r.demandeur.name,
       montant: r.montant,
       creeLe: r.creeLe.toISOString(),
+      cartflox: r.paiements[0] ? { statut: r.paiements[0].statut, remarque: r.paiements[0].remarque } : null,
+    })),
+    aVerifier: aVerifier.map((p): VuePaiementAVerifier => ({
+      sessionId: p.sessionId,
+      rechargeId: p.recharge.id,
+      reference: p.recharge.reference,
+      beneficiaire: p.recharge.beneficiaire.name,
+      montant: p.recharge.montant,
+      encaisse: p.montant,
+      etatRecharge: p.recharge.etat === "annulee" ? "annulee" : "en_attente",
+      remarque: p.remarque ?? "",
     })),
     dernieres,
   };

@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { EnTeteEspace } from "@/components/coque-espace";
+import { configCartflox } from "@/lib/cartflox-serveur";
 import { Identifiant, rechargeEnDirect, rechargeVisiblePar } from "@/lib/donnees-parent";
 import { de } from "@/lib/format";
 import { pispiAvecMontant, qrRecharge } from "@/lib/pispi";
-import { exiger, prenomDe } from "@/lib/session";
+import { exiger, origine, prenomDe } from "@/lib/session";
 import { Attente } from "./attente";
 
 export const metadata: Metadata = { title: "Recharge" };
 
-// La page d'une recharge : son montant, sa référence, le QR universel de paiement, et l'état relu en direct.
+// La page d'une recharge : son montant, sa référence, le paiement Mobile Money par Cartflox (quand il est branché), le QR
+// universel de paiement, et l'état relu en direct.
 // Seulement pour celui qui l'a demandée ou pour son bénéficiaire : pour tout autre, elle est introuvable.
 export default async function PageRecharge({ params }: { params: Promise<{ id: string }> }) {
   const m = await exiger("convive", "parent");
@@ -28,11 +30,14 @@ export default async function PageRecharge({ params }: { params: Promise<{ id: s
       : null,
   ]);
 
+  const cfg = r.etat === "en_attente" ? configCartflox() : null;
+  const cartflox = cfg ? { api: cfg.api, clePublique: cfg.clePublique, mode: cfg.mode, nom: m.nom, retour: `${await origine()}/recharger/${r.id}` } : null;
+
   return (
     <>
       <EnTeteEspace titre="Recharge" retour={{ href: "/recharger", libelle: "Recharger" }}
         sousTitre={pourMoi ? (aMoi ? "Pour ton compte" : `Pour ton compte, demandée par ${prenomDe(r.demandeur)}`) : `Pour ${r.beneficiaire}`} />
-      <Attente id={r.id} initial={initial} montant={r.montant} reference={r.reference} qr={qr} qrAvecMontant={pispiAvecMontant()} aMoi={aMoi}
+      <Attente id={r.id} initial={initial} montant={r.montant} reference={r.reference} qr={qr} qrAvecMontant={pispiAvecMontant()} cartflox={cartflox} aMoi={aMoi}
         soldeDeQui={pourMoi ? "Ton nouveau solde" : `Nouveau solde ${de(prenomDe(r.beneficiaire))}`}
         retour={m.role === "parent" ? { href: "/parent", libelle: "Revenir à mes enfants" } : { href: "/compte", libelle: "Revenir à mon compte" }}
         nouvelle={pourMoi ? "/recharger" : `/recharger?pour=${r.beneficiaireId}`} />

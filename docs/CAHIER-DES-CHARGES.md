@@ -33,7 +33,8 @@ Une phrase : « Plus de file, plus de gaspillage, plus d'allergie surprise, plus
 | Menus et tarifs peu clairs | Le menu de la semaine, avec la photo, le prix et les allergènes de chaque plat |
 | Gestion à la main | Commandes du jour, encaissements et chiffres calculés tout seuls |
 
-Ce qui démarque : on recharge le compte de la cantine avec un seul QR de paiement, le QR universel PI-SPI de la BCEAO, au
+Ce qui démarque : on recharge le compte en Mobile Money sans quitter la page, et il est crédité tout seul (Cartflox, section
+4.6). En second choix, un seul QR de paiement, le QR universel PI-SPI de la BCEAO, au
 lieu d'un QR par opérateur (section 4.6). L'argent va directement sur le compte de la cantine : Tablée ne le touche jamais.
 
 ## 3. Les trois rôles
@@ -108,8 +109,14 @@ Une réservation est acceptée seulement si tout est vrai. Sinon, la raison est 
 ### 4.6 Recharger
 - Qui : le convive pour lui-même, le parent pour son enfant, l'administrateur au comptoir (espèces).
 - Montants rapides : 2 000, 5 000, 10 000 F CFA, ou un autre montant entre 500 et 100 000.
-- Une demande de recharge reçoit une référence courte (« R-7K2M ») et attend la cantine.
-- L'écran montre le QR universel PI-SPI, fabriqué avec la bibliothèque officielle de la BCEAO `@pi-spi/qrcode`, strictement
+- Une demande de recharge reçoit une référence courte (« R-7K2M ») et attend son paiement.
+- Paiement en ligne par Cartflox (choix du propriétaire du 20/11/2026, qui remplace celui du 18/11 « jamais par Cartflox ») :
+  le formulaire SoftPay de Cartflox s'affiche dans la page, à nos couleurs et en « tu », pour la Côte d'Ivoire seulement
+  (pays CI, francs CFA, Wave, Orange Money, MTN MoMo, Moov Money). La page n'a que la clé publique. Le serveur relit chaque
+  paiement chez Cartflox avec la clé secrète (page qui relit, page de la cantine qui relit, webhook signé) et crédite le
+  montant de la recharge s'il est payé en francs CFA pour au moins ce montant ; sinon le paiement va dans « À regarder »,
+  chez la cantine. Une session ne sert qu'une recharge ; le crédit ne se fait qu'une fois.
+- En second choix, l'écran montre le QR universel PI-SPI, fabriqué avec la bibliothèque officielle de la BCEAO `@pi-spi/qrcode`, strictement
   standard (aucun champ ajouté) : l'adresse de paiement de la cantine (variable `PISPI_ALIAS`, jamais dans le dépôt), le
   montant et la référence. Le payeur le scanne avec son application habituelle.
 - Vérifié le 18/11/2026 sur le téléphone du propriétaire : le scanner principal de Wave ouvre un QR PI-SPI pur. Orange
@@ -118,9 +125,8 @@ Une réservation est acceptée seulement si tout est vrai. Sinon, la raison est 
   sans montant, et l'écran dit le montant à taper.
 - On ne scanne pas un QR affiché sur son propre téléphone : l'écran le dit et propose « Enregistrer l'image » ; au
   comptoir ou sur un ordinateur, on scanne directement.
-- Confirmation : l'administrateur touche « Paiement reçu » (deux temps), ce qui écrit le mouvement. C'est dit en clair à
-  l'écran et dans le README : confirmation à la main aujourd'hui, par l'API Business de PI-SPI ensuite.
-- Jamais par Cartflox ni par une passerelle : choix du propriétaire du 18/11/2026.
+- Confirmation du QR universel : l'administrateur touche « Paiement reçu » (deux temps), ce qui écrit le mouvement. C'est
+  dit en clair à l'écran et dans le README.
 
 ### 4.7 L'alerte de solde bas
 - Seuil par convive, 2 000 F CFA par défaut, réglable par le convive ou son parent.
@@ -161,13 +167,13 @@ par des virgules, lu et écrit par deux fonctions pures testées.
 | `/menu` | convive | Solde, ticket du jour, menu de la semaine, réserver, annuler |
 | `/ticket/<jeton>` | convive, admin | Le ticket avec son QR, son code court, son état |
 | `/compte` | convive, parent | Solde, historique, profil alimentaire, code famille, seuil d'alerte |
-| `/recharger`, `/recharger/<id>` | convive, parent | Choisir le montant ; le QR universel et l'attente de la cantine |
+| `/recharger`, `/recharger/<id>` | convive, parent | Choisir le montant ; payer par Cartflox dans la page, ou le QR universel |
 | `/parent` | parent | Ses enfants : solde, alerte, repas de la semaine ; relier un enfant |
 | `/admin` | admin | Tableau de bord |
 | `/admin/menus` | admin | Planifier, créer, modifier |
 | `/admin/commandes` | admin | Commandes d'aujourd'hui et de demain, en direct |
 | `/admin/scanner` | admin | Scanner un ticket, ou taper son code court |
-| `/admin/recharges` | admin | Confirmer « Paiement reçu », recharge en espèces |
+| `/admin/recharges` | admin | Paiements Cartflox « À regarder », confirmer « Paiement reçu », recharge en espèces |
 
 « En direct » : relecture toutes les 3 secondes (commandes, ticket, attente de recharge). Pas de notifications push.
 
@@ -187,6 +193,7 @@ Versions déjà éprouvées ensemble sur cette machine (dans Tablée et dans le 
 | zod | 4 | Validation de chaque action |
 | qrcode | 1.5 | QR du ticket |
 | @pi-spi/qrcode | 1.0.0 | QR universel de paiement (BCEAO) |
+| SoftPay de Cartflox | 2.0.0 | Paiement Mobile Money dans la page (script et cadre servis par Cartflox) |
 | jsqr | 1.4 | Lecture du QR par la caméra quand le navigateur n'a pas `BarcodeDetector` |
 
 Rangement du code :
@@ -257,7 +264,7 @@ Les écrans, en une ligne chacun :
 - **Ticket.** Papier clair, bord dentelé, IBM Plex Mono : le plat, le jour, le prix, le QR, le code court ; le tampon.
 - **Compte.** Le solde en grand, l'historique en lignes égales, le profil alimentaire en cases à cocher.
 - **Parent.** Une carte par enfant : solde, alerte, repas de la semaine en cinq pastilles d'état avec leur mot.
-- **Recharger.** Le montant, puis le QR universel au centre, la référence, « En attente de la cantine ».
+- **Recharger.** Le montant, puis le paiement Mobile Money dans la page, le QR universel en second choix, la référence.
 - **Administrateur.** Barre de côté discrète (Tableau de bord, Menus, Commandes, Scanner, Recharges) ; un seul grand
   graphique ; les commandes en colonnes par plat avec leur nombre en grand.
 
@@ -282,7 +289,7 @@ Le code préparé est accepté par l'organisation (dit par le propriétaire le 1
 
 ## 11. Hors champ samedi, et les bonus dans l'ordre
 
-Hors champ : application mobile native, anglais, notifications push, mode hors ligne, livraison, paiement par passerelle.
+Hors champ : application mobile native, anglais, notifications push, mode hors ligne, livraison, paiement hors Côte d'Ivoire.
 
 Bonus, seulement quand la consigne 12 est faite, dans cet ordre :
 1. « Ta semaine avec ton solde » : une fonction pure propose un plat par jour selon le solde, le profil et les notes.

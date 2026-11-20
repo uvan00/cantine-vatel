@@ -14,6 +14,7 @@ import { peutAnnuler, peutReserver, scanner, type Scan } from "@/lib/reservation
 import type { Moi, Role } from "@/lib/session";
 import { mouvementRecharge, mouvementRemboursement, mouvementRepas, seuilValable, soldeDe } from "@/lib/solde";
 import { lireCle, nettoyerCode, nouveauCode, nouveauCodeFamille, nouveauJeton, nouvelleReference } from "@/lib/ticket";
+import { sessionValable } from "@/lib/cartflox";
 
 // TOUT ce qui écrit dans la base passe par ici. Chaque geste applique la règle pure (src/lib/*.ts), puis écrit dans une
 // seule transaction : une réservation et son mouvement d'argent partent ensemble ou pas du tout.
@@ -205,15 +206,19 @@ async function referenceLibre(tx: Tx) {
 
 const phraseMontant = `Un montant entre ${fcfa(RECHARGE_MIN)} et ${fcfa(RECHARGE_MAX)}`;
 
-/** Le convive pour lui-même, ou le parent pour son enfant, demande une recharge : elle attend la cantine. */
-export async function demanderRecharge(demandeur: Pick<Moi, "id" | "role">, beneficiaireId: string, montant: number): Promise<{ ok: true; id: string } | Echec> {
+/**
+ * Le convive pour lui-même, ou le parent pour son enfant, demande une recharge : elle attend son paiement.
+ * `moyen` : « cartflox » quand le paiement en ligne est branché (il se confirme tout seul), « pispi » sinon (la cantine
+ * confirme à la main). Le moyen se précise à la confirmation, selon le chemin qu'a pris le paiement.
+ */
+export async function demanderRecharge(demandeur: Pick<Moi, "id" | "role">, beneficiaireId: string, montant: number, moyen: "cartflox" | "pispi" = "pispi"): Promise<{ ok: true; id: string } | Echec> {
   if (!montantValable(montant)) return echec(phraseMontant);
   if (demandeur.role === "admin" || !(await peutAgirPour(demandeur, beneficiaireId))) return echec("Tu ne peux recharger que ton compte ou celui de ton enfant");
   if (!(await prisma.profil.findUnique({ where: { userId: beneficiaireId }, select: { userId: true } }))) return echec("Ce compte ne se recharge pas");
   const enAttente = await prisma.recharge.count({ where: { demandeurId: demandeur.id, etat: "en_attente" } });
   if (!peutDemander(enAttente)) return echec(`Tu as déjà ${ATTENTES_MAX} recharges en attente : annule-en une, ou laisse la cantine les confirmer`);
   const r = await prisma.$transaction(async (tx) =>
-    tx.recharge.create({ data: { beneficiaireId, demandeurId: demandeur.id, montant, reference: await referenceLibre(tx), moyen: "pispi" } }));
+    tx.recharge.create({ data: { beneficiaireId, demandeurId: demandeur.id, montant, reference: await referenceLibre(tx), moyen } }));
   return { ok: true, id: r.id };
 }
 
@@ -226,13 +231,22 @@ export async function annulerRecharge(demandeurId: string, id: string, maintenan
   return FAIT;
 }
 
-/** « Paiement reçu » : la cantine confirme, le mouvement s'écrit, le solde monte. Une seule fois par recharge. */
+/**
+ * « Paiement reçu » : la cantine confirme, le mouvement s'écrit, le solde monte. Une seule fois par recharge : le passage
+ * « en attente » vers « confirmée » est une écriture conditionnelle, deux clics ou deux écrans ne créditent jamais deux fois.
+ * Le moyen devient « cartflox » si Cartflox a vu ce paiement réussir, « pispi » sinon (QR universel).
+ */
 export async function confirmerRecharge(adminId: string, id: string, maintenant = Date.now()): Promise<Fait | Echec> {
   return prisma.$transaction(async (tx) => {
     const r = await tx.recharge.findUnique({ where: { id } });
     if (!r) return echec("Recharge introuvable");
     if (!peutConfirmer(r)) return echec("Cette recharge n'attend plus de confirmation");
-    await tx.recharge.update({ where: { id }, data: { etat: "confirmee", confirmeePar: adminId, confirmeeLe: new Date(maintenant) } });
+    const payeeChezCartflox = (await tx.paiementCartflox.count({ where: { rechargeId: id, statut: "SUCCESS" } })) > 0;
+    const fait = await tx.recharge.updateMany({
+      where: { id, etat: "en_attente" },
+      data: { etat: "confirmee", moyen: payeeChezCartflox ? "cartflox" : "pispi", confirmeePar: adminId, confirmeeLe: new Date(maintenant) },
+    });
+    if (fait.count !== 1) return echec("Cette recharge n'attend plus de confirmation");
     const m = mouvementRecharge(r.montant);
     await tx.mouvement.create({
       data: { conviveId: r.beneficiaireId, genre: m.genre, montant: m.montant, libelle: `Recharge ${r.reference}`, rechargeId: r.id, creeLe: new Date(maintenant) },
@@ -254,6 +268,63 @@ export async function rechargerEnEspeces(adminId: string, beneficiaireId: string
       data: { conviveId: beneficiaireId, genre: m.genre, montant: m.montant, libelle: `Recharge en espèces ${r.reference}`, rechargeId: r.id, creeLe: new Date(maintenant) },
     });
     return { ok: true as const, reference: r.reference };
+  });
+}
+
+/* ── Cartflox : les sessions de paiement d'une recharge ─────────────────────── */
+
+/**
+ * Relie une session de paiement Cartflox à une recharge. Une session ne sert qu'une recharge, pour toujours : c'est ce
+ * qui empêche un même paiement de créditer deux fois. Une recharge qui n'attend plus rien ne reçoit pas de nouvelle
+ * session, sauf `memeClose` (un webhook qui signale un paiement arrivé après coup : on le garde pour que la cantine le voie).
+ * Ne vérifie pas QUI demande : l'action serveur le fait avant, le webhook prouve sa signature.
+ */
+export async function lierSessionCartflox(rechargeId: string, sessionId: string, memeClose = false): Promise<Fait | Echec> {
+  if (!sessionValable(sessionId)) return echec("Ce paiement n'a pas la forme d'un paiement Cartflox");
+  return prisma.$transaction(async (tx) => {
+    const deja = await tx.paiementCartflox.findUnique({ where: { sessionId } });
+    if (deja) return deja.rechargeId === rechargeId ? FAIT : echec("Ce paiement appartient à une autre recharge");
+    const r = await tx.recharge.findUnique({ where: { id: rechargeId }, select: { etat: true } });
+    if (!r) return echec("Recharge introuvable");
+    if (r.etat !== "en_attente" && !memeClose) return echec("Cette recharge n'attend plus de paiement");
+    await tx.paiementCartflox.create({ data: { sessionId, rechargeId } });
+    return FAIT;
+  });
+}
+
+/** Note ce que Cartflox dit d'une session : son statut, ce qu'il a encaissé, et une remarque pour la cantine. */
+export async function noterSessionCartflox(sessionId: string, d: { statut: string; montant: number | null; devise: string | null; remarque: string | null }, maintenant = Date.now()) {
+  await prisma.paiementCartflox.updateMany({
+    where: { sessionId },
+    data: { statut: d.statut.slice(0, 20), montant: d.montant, devise: d.devise?.slice(0, 3) ?? null, remarque: d.remarque?.slice(0, 200) ?? null, luLe: new Date(maintenant) },
+  });
+}
+
+/**
+ * Crédite une recharge payée par Cartflox, avec le montant DE LA RECHARGE (Cartflox a pu encaisser des frais en plus).
+ * `par` : « cartflox » pour la vérification automatique, l'identifiant de l'administrateur quand il crédite à la main un
+ * paiement que Cartflox n'a pas pu créditer tout seul ; lui seul peut aussi créditer une recharge annulée (`memeAnnulee`)
+ * dont le paiement est arrivé après coup. Écriture conditionnelle : la page, le webhook et la cantine peuvent arriver en
+ * même temps, la recharge n'est créditée qu'une fois. Une recharge déjà confirmée ne bouge plus.
+ */
+export async function crediterParCartflox(rechargeId: string, sessionId: string, par: string, maintenant = Date.now(), memeAnnulee = false): Promise<Fait | Echec> {
+  return prisma.$transaction(async (tx) => {
+    const p = await tx.paiementCartflox.findUnique({ where: { sessionId } });
+    if (!p || p.rechargeId !== rechargeId) return echec("Ce paiement n'est pas relié à cette recharge");
+    const r = await tx.recharge.findUnique({ where: { id: rechargeId } });
+    if (!r) return echec("Recharge introuvable");
+    if (r.etat === "confirmee") return FAIT;
+    const fait = await tx.recharge.updateMany({
+      where: { id: rechargeId, etat: { in: memeAnnulee ? ["en_attente", "annulee"] : ["en_attente"] } },
+      data: { etat: "confirmee", moyen: "cartflox", confirmeePar: par, confirmeeLe: new Date(maintenant) },
+    });
+    if (fait.count !== 1) return r.etat === "annulee" ? echec("Cette demande a été annulée : la cantine décide de la créditer") : FAIT;
+    const m = mouvementRecharge(r.montant);
+    await tx.mouvement.create({
+      data: { conviveId: r.beneficiaireId, genre: m.genre, montant: m.montant, libelle: `Recharge ${r.reference} (Mobile Money)`, rechargeId: r.id, creeLe: new Date(maintenant) },
+    });
+    if (memeAnnulee) await tx.paiementCartflox.updateMany({ where: { sessionId }, data: { remarque: null } });
+    return FAIT;
   });
 }
 

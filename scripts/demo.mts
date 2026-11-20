@@ -71,6 +71,7 @@ async function main() {
   // Tout repart de zéro, dans l'ordre des liens.
   await prisma.note.deleteMany();
   await prisma.mouvement.deleteMany();
+  await prisma.paiementCartflox.deleteMany();
   await prisma.recharge.deleteMany();
   await prisma.reservation.deleteMany();
   await prisma.menuJour.deleteMany();

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { EnTeteEspace } from "@/components/coque-espace";
 import { STitreSection } from "@/components/sneat";
+import { configCartflox } from "@/lib/cartflox-serveur";
 import { soldeDuCompte } from "@/lib/donnees";
 import { enfantsDuParent, rechargesEnAttenteDe } from "@/lib/donnees-parent";
 import { maintenant } from "@/lib/horloge";
@@ -11,7 +12,8 @@ import { AucunCompte, FormulaireRecharge, type CompteARecharger } from "./formul
 export const metadata: Metadata = { title: "Recharger" };
 
 // Recharger un compte : le convive le sien, le parent celui d'un de ses enfants (« ?pour=<id> » le choisit d'avance,
-// s'il est bien le sien). On choisit le montant ici ; la page suivante montre le QR de paiement et attend la cantine.
+// s'il est bien le sien). On choisit le montant ici ; la page suivante fait payer (Mobile Money par Cartflox quand il est
+// branché, sinon le QR universel que la cantine confirme à la main).
 export default async function PageRecharger({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const m = await exiger("convive", "parent");
   const { pour } = await searchParams;
@@ -29,7 +31,9 @@ export default async function PageRecharger({ searchParams }: { searchParams: Pr
   return (
     <>
       <EnTeteEspace titre="Recharger" retour={parent ? undefined : { href: "/compte", libelle: "Compte" }}
-        sousTitre={comptes.length > 0 ? "Choisis le montant, la cantine confirme dès qu'elle voit ton paiement" : undefined} />
+        sousTitre={comptes.length > 0 ? (configCartflox()
+          ? "Choisis le montant, puis paie avec ton Mobile Money : le compte est crédité dès que le paiement passe"
+          : "Choisis le montant, la cantine confirme dès qu'elle voit ton paiement") : undefined} />
 
       {comptes.length === 0 ? <AucunCompte /> : (
         <section className="px-4">

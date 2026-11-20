@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { Identifiant } from "@/lib/donnees-parent";
+import { configCartflox, verifierRecharge } from "@/lib/cartflox-serveur";
+import { Identifiant, rechargeVisiblePar } from "@/lib/donnees-parent";
 import { fcfa } from "@/lib/format";
-import { annulerRecharge, demanderRecharge } from "@/lib/operations";
+import { annulerRecharge, demanderRecharge, lierSessionCartflox } from "@/lib/operations";
 import { RECHARGE_MAX, RECHARGE_MIN, montantValable } from "@/lib/recharge";
 import { autorise } from "@/lib/session";
 
@@ -35,19 +36,56 @@ export async function demanderUneRecharge(d: { pour: string; montant: string }):
     if (!enfant.success) return { erreur: "Choisis d'abord pour qui tu recharges" };
     beneficiaireId = enfant.data;
   }
-  const r = await demanderRecharge(m, beneficiaireId, v.data.montant);
+  const r = await demanderRecharge(m, beneficiaireId, v.data.montant, configCartflox() ? "cartflox" : "pispi");
   if (!r.ok) return { erreur: r.erreur };
   revalidatePath("/recharger");
   redirect(`/recharger/${r.id}`);
 }
 
-/** Celui qui a demandé la recharge l'annule, tant que la cantine ne l'a pas confirmée. */
+/**
+ * Celui qui a demandé la recharge l'annule, tant qu'elle n'est pas confirmée. Avant d'annuler, on relit ses paiements
+ * Cartflox : un paiement déjà passé crédite la recharge au lieu de la laisser annuler.
+ */
 export async function annulerMaRecharge(id: string): Promise<{ ok: true } | { ok: false; erreur: string }> {
   const m = await autorise("convive", "parent");
   if (!m) return { ok: false, erreur: SESSION };
   const v = Identifiant.safeParse(id);
   if (!v.success) return { ok: false, erreur: "Recharge introuvable" };
+  if ((await verifierRecharge(v.data, { force: true })) === "confirmee") {
+    revalidatePath("/recharger");
+    return { ok: false, erreur: "Ton paiement est déjà arrivé : la recharge est créditée, plus rien à annuler" };
+  }
   const r = await annulerRecharge(m.id, v.data);
   if (r.ok) revalidatePath("/recharger");
   return r;
+}
+
+const Session = z.string().regex(/^[a-z0-9]{12,40}$/, "Paiement inconnu");
+
+/**
+ * Le cadre de paiement vient de créer un paiement chez Cartflox : on le relie à la recharge, pour pouvoir le relire même
+ * si la page se ferme. Seulement pour celui qui a demandé la recharge ou pour son bénéficiaire.
+ */
+export async function lierPaiement(rechargeId: string, sessionId: string): Promise<{ ok: true } | { ok: false; erreur: string }> {
+  const m = await autorise("convive", "parent");
+  if (!m) return { ok: false, erreur: SESSION };
+  const id = Identifiant.safeParse(rechargeId), s = Session.safeParse(sessionId);
+  if (!id.success || !s.success || !(await rechargeVisiblePar(id.data, m.id))) return { ok: false, erreur: "Recharge introuvable" };
+  return lierSessionCartflox(id.data, s.data);
+}
+
+/**
+ * Cartflox annonce la réussite dans la page : on ne le croit pas sur parole, on relit le paiement chez Cartflox avec la clé
+ * secrète. Rend l'état de la recharge après la vérification.
+ */
+export async function verifierMonPaiement(rechargeId: string, sessionId: string): Promise<{ etat: string } | { erreur: string }> {
+  const m = await autorise("convive", "parent");
+  if (!m) return { erreur: SESSION };
+  const id = Identifiant.safeParse(rechargeId), s = Session.safeParse(sessionId);
+  if (!id.success || !s.success || !(await rechargeVisiblePar(id.data, m.id))) return { erreur: "Recharge introuvable" };
+  // La session a pu naître avant que le lien soit posé (page rechargée) : on la relie d'abord, sans erreur si c'est fait.
+  await lierSessionCartflox(id.data, s.data);
+  const etat = await verifierRecharge(id.data, { force: true });
+  if (etat === "confirmee") revalidatePath("/recharger");
+  return { etat: etat ?? "en_attente" };
 }

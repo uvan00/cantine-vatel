@@ -3,16 +3,18 @@
 import { useState, useTransition } from "react";
 import { useConfirmation } from "@/components/fenetre";
 import { Check, Copy, Info } from "@/components/icons";
+import { PaiementCartflox } from "@/components/paiement-cartflox";
 import { QrRecharge } from "@/components/qr-recharge";
 import { SAlert, SBtn, SBtnLink, SChip, type Ton } from "@/components/sneat";
 import { useDirect } from "@/hooks/use-direct";
 import type { RechargeEnDirect } from "@/lib/donnees-parent";
 import { fcfa } from "@/lib/format";
 import { LIBELLE_ETAT_RECHARGE, type EtatRecharge } from "@/lib/recharge";
-import { annulerMaRecharge } from "../actions";
+import { annulerMaRecharge, lierPaiement, verifierMonPaiement } from "../actions";
 
-// La page d'une recharge, relue toutes les 3 secondes : tant qu'elle attend, le QR de paiement et de quoi l'annuler ;
-// dès que la cantine a confirmé, « Reçue » et le nouveau solde. Rien ici ne décide : l'état vient du serveur.
+// La page d'une recharge, relue toutes les 3 secondes : tant qu'elle attend, le paiement Mobile Money par Cartflox
+// (quand il est branché), le QR universel en second choix, et de quoi l'annuler ; dès que le paiement est confirmé,
+// « Reçue » et le nouveau solde. Rien ici ne décide : l'état vient du serveur, qui relit chaque paiement chez Cartflox.
 
 const TON: Record<EtatRecharge, Ton> = { en_attente: "warning", confirmee: "success", annulee: "secondary" };
 
@@ -56,7 +58,10 @@ function Reference({ reference }: { reference: string }) {
   );
 }
 
-export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, aMoi, soldeDeQui, retour, nouvelle }: {
+/** Ce que la page sait du paiement en ligne : jamais la clé secrète. */
+export type CartfloxPage = { api: string; clePublique: string; mode: "test" | "live"; nom: string; retour: string };
+
+export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, cartflox, aMoi, soldeDeQui, retour, nouvelle }: {
   id: string;
   initial: RechargeEnDirect;
   montant: number;
@@ -65,6 +70,8 @@ export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, aM
   qr: string | null;
   /** Faux : le QR ne porte pas le montant, le payeur le tape. */
   qrAvecMontant: boolean;
+  /** Le paiement Mobile Money par Cartflox ; null quand il n'est pas branché (le QR universel reste alors seul). */
+  cartflox: CartfloxPage | null;
   /** Vrai pour celui qui a demandé la recharge : lui seul peut l'annuler. */
   aMoi: boolean;
   /** « Ton nouveau solde », « Nouveau solde d'Ismaël » */
@@ -78,6 +85,18 @@ export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, aM
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, demarrer] = useTransition();
   const { etat } = direct;
+  const [verification, setVerification] = useState<string | null>(null);
+
+  // Le cadre a créé un paiement : le serveur le relie à la recharge (on le relira même si la page se ferme).
+  const surSession = (sessionId: string) => { void lierPaiement(id, sessionId); };
+  // Le cadre annonce la réussite : le serveur relit le paiement chez Cartflox avant de créditer.
+  const surReussite = async (sessionId: string) => {
+    setVerification("Paiement reçu par Cartflox, on vérifie et on crédite");
+    const r = await verifierMonPaiement(id, sessionId).catch(() => null);
+    await relire();
+    if (r && "etat" in r && r.etat === "confirmee") setVerification(null);
+    else setVerification("Paiement annoncé par Cartflox : la vérification continue, cette page se met à jour toute seule");
+  };
 
   const annuler = async () => {
     const oui = await confirmer({
@@ -102,16 +121,46 @@ export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, aM
         <p className="chiffres text-[40px] leading-[48px] font-medium text-encre/95">{fcfa(montant)}</p>
         <Reference reference={reference} />
         <div className="mt-5" aria-live="polite">
-          <SChip tone={TON[etat]}>{LIBELLE_ETAT_RECHARGE[etat]}</SChip>
+          <SChip tone={TON[etat]}>{etat === "en_attente" && cartflox ? "En attente du paiement" : LIBELLE_ETAT_RECHARGE[etat]}</SChip>
           <p className="mt-2 text-[15px] leading-6 text-texte-2">
-            {etat === "en_attente" && "La cantine confirme à la main, après avoir vu le paiement arriver. Cette page se met à jour toute seule."}
-            {etat === "confirmee" && "La cantine a vu le paiement arriver, c'est sur le compte"}
+            {etat === "en_attente" && (cartflox
+              ? "Paie ci-dessous avec ton Mobile Money : dès que le paiement passe, le compte est crédité tout seul."
+              : "La cantine confirme à la main, après avoir vu le paiement arriver. Cette page se met à jour toute seule.")}
+            {etat === "confirmee" && "Le paiement est arrivé, c'est sur le compte"}
             {etat === "annulee" && "La cantine ne confirmera pas cette demande. Si tu avais déjà payé, passe au comptoir avec la référence."}
           </p>
         </div>
       </section>
 
-      {etat === "en_attente" && (
+      {etat === "en_attente" && cartflox && (
+        <section className="mt-6 px-4" aria-label="Payer avec ton Mobile Money">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[18px] leading-6">Payer avec ton Mobile Money</h2>
+            {cartflox.mode === "test" && <SChip tone="warning" size="sm">Mode essai, aucun argent réel</SChip>}
+          </div>
+          <p className="mt-1 text-[14px] leading-5 text-texte-2">Wave, Orange Money, MTN MoMo ou Moov Money, avec un numéro de Côte d&apos;Ivoire</p>
+          {verification && <p aria-live="polite" className="mt-3 text-[14px] leading-5 font-medium text-encre/90">{verification}</p>}
+          <div className="mt-4 rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-2">
+            <PaiementCartflox api={cartflox.api} clePublique={cartflox.clePublique} montant={montant} rechargeId={id} reference={reference}
+              nom={cartflox.nom} retour={cartflox.retour} onSession={surSession} onReussi={(s) => { void surReussite(s); }} />
+          </div>
+        </section>
+      )}
+
+      {etat === "en_attente" && cartflox && qr && (
+        <details className="group mt-6 px-4">
+          <summary className="flex h-12 cursor-pointer list-none items-center justify-between rounded-[12px] px-4 text-[15px] font-medium text-encre/90 shadow-[inset_0_0_0_1px_var(--h-filet)] transition-colors hover:bg-[color:var(--h-survol)] [&::-webkit-details-marker]:hidden">
+            Payer plutôt avec le QR universel
+            <span aria-hidden="true" className="text-texte-2 transition-transform group-open:rotate-90">›</span>
+          </summary>
+          <div className="mt-4 rounded-[16px] bg-[var(--h-fond-2)] px-4 py-6">
+            <p className="mb-4 text-[14px] leading-5 text-texte-2">Avec le QR universel, la cantine confirme à la main, après avoir vu le paiement arriver</p>
+            <QrRecharge svg={qr} reference={reference} montantATaper={qrAvecMontant ? undefined : fcfa(montant)} />
+          </div>
+        </details>
+      )}
+
+      {etat === "en_attente" && !cartflox && (
         qr ? (
           <section className="mt-6 bg-[var(--h-fond-2)] px-4 py-6">
             <QrRecharge svg={qr} reference={reference} montantATaper={qrAvecMontant ? undefined : fcfa(montant)} />

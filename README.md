@@ -98,21 +98,46 @@ L'écran et le serveur appliquent la même fonction : un bouton grisé dit exact
 - Le jeton d'un ticket est tiré au hasard (128 bits) ; un ticket ne se sert qu'une fois.
 - Aucun secret dans le dépôt : `.env` est ignoré par git, `.env.example` ne contient aucune valeur.
 
-## La recharge : un seul QR, et l'argent va droit à la cantine
+## La recharge : le Mobile Money dans la page, crédité tout seul
 
-L'écran de recharge montre le QR universel PI-SPI de la BCEAO, fabriqué par sa bibliothèque officielle
-[`@pi-spi/qrcode`](https://www.npmjs.com/package/@pi-spi/qrcode), strictement standard : l'adresse de paiement de la
-cantine, le montant et la référence de la recharge. Le payeur le scanne avec son application habituelle. L'argent arrive
-directement sur le compte de la cantine : l'application ne le touche jamais, et il n'y a aucune passerelle.
+**Paiement en ligne par Cartflox** (Côte d'Ivoire seulement, en francs CFA). Sur la page de la recharge, le formulaire de
+paiement de Cartflox (SoftPay) s'affiche à nos couleurs : on choisit Wave, Orange Money, MTN MoMo ou Moov Money, on tape son
+numéro de Côte d'Ivoire et on valide sur son téléphone. Le compte est crédité dès que le paiement passe, sans attendre la
+cantine.
 
-Ce qui est vérifié : le scanner de Wave ouvre un QR PI-SPI (essai du 18/11/2026 sur un vrai téléphone) ; Orange l'annonce
-pour Max it. Ce qui reste à vérifier : MTN MoMo et Moov Money.
+- La page ne reçoit que la clé publique de Cartflox, qui permet seulement de créer et suivre un paiement.
+- Le serveur ne croit jamais la page : il relit chaque paiement chez Cartflox avec la clé secrète, qui ne quitte jamais le
+  serveur, et ne crédite que s'il est payé, en francs CFA, pour au moins le montant de la recharge. Il crédite toujours le
+  montant de la recharge, même si des frais ont été ajoutés au payeur.
+- Une session de paiement ne sert qu'une recharge, pour toujours, et le crédit est une écriture conditionnelle : la page,
+  le webhook et la cantine peuvent arriver en même temps, la recharge n'est créditée qu'une fois.
+- Trois chemins mènent au crédit : la page qui relit le paiement, la page de la cantine qui relit les paiements en cours,
+  et le webhook signé de Cartflox (`/api/cartflox/webhook`). Le webhook est un plus : sans lui, rien ne se perd.
+- Un paiement qui ne peut pas se créditer tout seul (montant inattendu, ou arrivé après l'annulation de la demande) va dans
+  « À regarder », chez la cantine, qui le crédite après l'avoir vu dans son espace Cartflox.
+
+**Le QR universel PI-SPI**, en second choix sur la même page : le QR de la BCEAO, fabriqué par sa bibliothèque officielle
+[`@pi-spi/qrcode`](https://www.npmjs.com/package/@pi-spi/qrcode), avec l'adresse de paiement de la cantine, le montant et la
+référence. L'argent arrive directement sur le compte de la cantine, qui confirme à la main (« Paiement reçu »). Le scanner
+de Wave l'ouvre (essai du 18/11/2026 sur un vrai téléphone) ; Orange l'annonce pour Max it.
+
+**Les espèces**, au comptoir : la cantine crédite le compte tout de suite.
+
+### Brancher Cartflox
+
+```bash
+./scripts/cle-cartflox.sh   # demande la clé publique puis la clé secrète, sans les afficher, et les écrit dans .env.local
+```
+
+Les deux clés viennent de l'espace Cartflox (rubrique Développeurs) et doivent être du même mode. Clés de test
+(`af_test_...`) pour essayer et pour la démo : aucun argent ne bouge, et la page le dit. Clés de production
+(`af_live_...`) pour de vrais paiements. Sans clés, seul le QR universel est proposé. Pour le webhook, déclarer
+`https://<adresse>/api/cartflox/webhook` dans l'espace Cartflox : Cartflox le signe avec la clé secrète.
 
 ## Ce qui se fait encore à la main, dit sans détour
 
-- **La confirmation d'une recharge** : la cantine vérifie sur son compte que l'argent est arrivé, puis touche
-  « Paiement reçu ». L'étape suivante est la confirmation automatique par l'API Business de PI-SPI, qui passe par la
-  banque ou le portefeuille de la cantine.
+- **La confirmation d'une recharge payée par le QR universel** : la cantine vérifie sur son compte que l'argent est
+  arrivé, puis touche « Paiement reçu ». Les recharges payées par Cartflox, elles, se créditent toutes seules.
 - **Les photos des plats** sont des images générées, à remplacer par celles de la vraie cantine.
 - **Les prix et le menu** sont des données de démonstration.
 - **Les alertes** s'affichent dans l'application. Pas encore de notification push ni de message WhatsApp.
@@ -127,5 +152,5 @@ l'auteur pour ses autres produits (`src/components/sneat.tsx`, `fenetre.tsx`, `i
 ## Mise en ligne
 
 Une image Docker (`Dockerfile`) : Node 24, `next start`, la base SQLite dans le volume `/donnees`. Trois valeurs arrivent
-par l'environnement du serveur : `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (l'adresse publique) et `PISPI_ALIAS`
-(l'adresse de paiement de la cantine).
+par l'environnement du serveur : `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (l'adresse publique), `PISPI_ALIAS`
+(l'adresse de paiement de la cantine), `CARTFLOX_CLE_PUBLIQUE` et `CARTFLOX_CLE_SECRETE`.

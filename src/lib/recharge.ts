@@ -3,7 +3,7 @@
 // Pures, testées par `npm test`.
 
 export type EtatRecharge = "en_attente" | "confirmee" | "annulee";
-export type MoyenRecharge = "pispi" | "especes";
+export type MoyenRecharge = "cartflox" | "pispi" | "especes";
 
 export const MONTANTS_RAPIDES = [2000, 5000, 10_000] as const;
 export const RECHARGE_MIN = 500;
@@ -19,6 +19,7 @@ export const LIBELLE_ETAT_RECHARGE: Record<EtatRecharge, string> = {
 };
 
 export const LIBELLE_MOYEN: Record<MoyenRecharge, string> = {
+  cartflox: "Mobile Money (Cartflox)",
   pispi: "QR universel",
   especes: "Espèces au comptoir",
 };

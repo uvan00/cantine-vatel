@@ -204,20 +204,41 @@ model Recharge {
   demandeurId    String
   demandeur      User        @relation("demandeur", fields: [demandeurId], references: [id], onDelete: Cascade)
   montant        Int
-  /// « R-7K2M » : écrite dans le QR de paiement, lue par la cantine.
+  /// « R-7K2M » : écrite dans le QR de paiement et dans le paiement Cartflox, lue par la cantine.
   reference      String      @unique
-  /// pispi | especes
+  /// cartflox (Mobile Money par Cartflox, confirmé tout seul) | pispi (QR universel, confirmé à la main) | especes
   moyen          String      @default("pispi")
   /// en_attente | confirmee | annulee
   etat           String      @default("en_attente")
-  /// L'administrateur qui a touché « Paiement reçu ».
+  /// L'administrateur qui a touché « Paiement reçu », ou « cartflox » quand Cartflox a confirmé le paiement.
   confirmeePar   String?
   creeLe         DateTime    @default(now())
   confirmeeLe    DateTime?
   annuleeLe      DateTime?
   mouvements     Mouvement[]
+  paiements      PaiementCartflox[]
 
   @@index([etat, creeLe])
+}
+
+/// Une session de paiement Cartflox ouverte pour une recharge. Une session ne sert qu'une seule recharge, pour toujours :
+/// c'est ce qui empêche un même paiement de créditer deux fois.
+model PaiementCartflox {
+  /// L'identifiant de la session chez Cartflox.
+  sessionId  String    @id
+  rechargeId String
+  recharge   Recharge  @relation(fields: [rechargeId], references: [id], onDelete: Cascade)
+  /// Le dernier statut lu chez Cartflox : PENDING, SUCCESS, FAILED, CANCELLED, EXPIRED, REFUNDED.
+  statut     String    @default("PENDING")
+  /// Ce que Cartflox dit avoir encaissé à la dernière lecture (frais du payeur compris s'il y en a).
+  montant    Int?
+  devise     String?
+  /// Pourquoi le paiement n'a pas abouti, ou pourquoi il n'a pas été crédité tout seul.
+  remarque   String?
+  creeLe     DateTime  @default(now())
+  luLe       DateTime?
+
+  @@index([rechargeId])
 }
 
 model Note {

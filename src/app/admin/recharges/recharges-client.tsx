@@ -5,16 +5,16 @@ import { EnTetePage, Fenetre } from "@/components/fenetre";
 import { CheckCircle2, Coins, Info } from "@/components/icons";
 import { SAlert, SBtn, SChip, SRecherche, STable, STd, STitreSection, STr } from "@/components/sneat";
 import { useDirect } from "@/hooks/use-direct";
-import type { VueCompteTrouve, VueRechargeEnAttente, VueRechargePassee, VueRecharges } from "@/lib/donnees-admin";
+import type { VueCompteTrouve, VuePaiementAVerifier, VueRechargeEnAttente, VueRechargePassee, VueRecharges } from "@/lib/donnees-admin";
 import { depuis, fcfa } from "@/lib/format";
 import { jourIso, jourProche } from "@/lib/jours";
 import { LIBELLE_ETAT_RECHARGE, LIBELLE_MOYEN, MONTANTS_RAPIDES, RECHARGE_MAX, RECHARGE_MIN, montantValable } from "@/lib/recharge";
 import { heureH } from "@/lib/reservation";
-import { chercherConvives, encaisserEspeces, paiementRecu } from "./actions";
+import { chercherConvives, crediterPaiement, encaisserEspeces, paiementRecu, verifierChezCartflox } from "./actions";
 
-// Les recharges, côté cantine : les demandes qui attendent « Paiement reçu » (relues toutes les 3 secondes), les espèces
-// encaissées au comptoir, et les vingt dernières recharges closes. L'argent arrive directement sur le compte de la
-// cantine : l'application note seulement ce que la cantine confirme.
+// Les recharges, côté cantine, relues toutes les 3 secondes : les demandes en attente (celles payées par Cartflox se
+// créditent toutes seules, celles du QR universel attendent « Paiement reçu »), les paiements Cartflox à regarder, les
+// espèces encaissées au comptoir, et les vingt dernières recharges closes.
 
 /** « aujourd'hui à 12 h 14 », « hier à 19 h 40 », « mardi 17 novembre à 18 h 05 » */
 const quand = (iso: string, maintenant: number) => `${jourProche(jourIso(new Date(iso).getTime()), maintenant)} à ${heureH(iso)}`;
@@ -30,9 +30,24 @@ export function RechargesClient({ initial }: { initial: VueRecharges }) {
         actions={<SBtn tone="secondary" onClick={() => setEspeces(true)}><Coins className="size-5" strokeWidth={1.8} /><span>Recharge en espèces</span></SBtn>} />
 
       <SAlert Icon={Info}>
-        Avant de confirmer, regarde sur le compte de la cantine que l&apos;argent est bien arrivé, avec la même référence et le même montant.
-        Pour l&apos;instant, la confirmation se fait à la main : c&apos;est toi qui dis « Paiement reçu ».
+        Les paiements Mobile Money passés par Cartflox se créditent tout seuls. Pour le QR universel, regarde d&apos;abord sur le compte de la cantine
+        que l&apos;argent est bien arrivé, avec la même référence et le même montant, puis dis « Paiement reçu ».
       </SAlert>
+
+      {donnees.aVerifier.length > 0 && (
+        <section aria-labelledby="titre-a-verifier" className="space-y-3">
+          <STitreSection>
+            <span id="titre-a-verifier">À regarder</span>
+            <span className="chiffres ml-2 text-[14px] font-normal text-texte-2">{donnees.aVerifier.length}</span>
+          </STitreSection>
+          <p className="text-[14px] leading-5 text-texte-2">Des paiements Cartflox passés mais pas crédités tout seuls. Regarde-les dans ton espace Cartflox avant de créditer</p>
+          <ul className="flex flex-col gap-2">
+            {donnees.aVerifier.map((p) => (
+              <LigneAVerifier key={p.sessionId} p={p} onFait={async (message) => { if (message) setAnnonce(message); await recharger(); }} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       <p className="sr-only" role="status">{annonce}</p>
 
@@ -107,10 +122,25 @@ function EtatRecharge({ r }: { r: VueRechargePassee }) {
 
 /* ── Une demande en attente : « Paiement reçu », en deux temps ─────────────── */
 
+/** Ce que dit le dernier paiement Cartflox d'une demande, en mots. */
+function etatCartflox(statut: string): { texte: string; ton: "warning" | "error" | "success" | "secondary" } {
+  if (statut === "SUCCESS") return { texte: "Payé chez Cartflox", ton: "success" };
+  if (["FAILED", "CANCELLED", "EXPIRED", "REFUNDED"].includes(statut)) return { texte: "Paiement Cartflox non abouti", ton: "error" };
+  if (statut === "INCONNUE") return { texte: "Inconnu chez Cartflox", ton: "secondary" };
+  return { texte: "Paiement Cartflox en cours", ton: "warning" };
+}
+
 function LigneEnAttente({ r, maintenant, onFait }: { r: VueRechargeEnAttente; maintenant: number; onFait: (message: string | null) => Promise<void> }) {
   const [aConfirmer, setAConfirmer] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [enCours, demarrer] = useTransition();
+  const cartflox = r.cartflox ? etatCartflox(r.cartflox.statut) : null;
+
+  const verifier = () => demarrer(async () => {
+    const res = await verifierChezCartflox(r.id);
+    setErreur(res.ok ? (res.etat === "confirmee" ? null : "Cartflox n'a pas encore vu ce paiement passer") : res.erreur);
+    await onFait(res.ok && res.etat === "confirmee" ? `Recharge ${r.reference} créditée par Cartflox : ${fcfa(r.montant)} pour ${r.beneficiaire}` : null);
+  });
 
   const confirmer = () => demarrer(async () => {
     const res = await paiementRecu(r.id);
@@ -126,6 +156,7 @@ function LigneEnAttente({ r, maintenant, onFait }: { r: VueRechargeEnAttente; ma
         <div className="min-w-0 flex-1 basis-[180px]">
           <p className="truncate text-[15px] leading-5 font-semibold text-encre/95">{r.beneficiaire}</p>
           <p className="text-[13px] leading-5 text-texte-2">{r.groupe}{r.demandeur ? `, demandée par ${r.demandeur}` : ""}</p>
+          {cartflox && <p className="mt-1"><SChip tone={cartflox.ton} size="sm">{cartflox.texte}</SChip></p>}
         </div>
         <div className="shrink-0 @2xl/page:text-right">
           <p className="chiffres text-[18px] leading-6 font-semibold text-encre/95">{fcfa(r.montant)}</p>
@@ -138,7 +169,54 @@ function LigneEnAttente({ r, maintenant, onFait }: { r: VueRechargeEnAttente; ma
               <SBtn variant="text" tone="secondary" disabled={enCours} onClick={() => setAConfirmer(false)}>Non</SBtn>
             </>
           ) : (
-            <SBtn variant="outlined" tone="secondary" onClick={() => { setErreur(null); setAConfirmer(true); }}>Paiement reçu</SBtn>
+            <>
+              {r.cartflox && <SBtn variant="text" tone="secondary" disabled={enCours} onClick={verifier}>{enCours ? "Un instant" : "Vérifier chez Cartflox"}</SBtn>}
+              <SBtn variant="outlined" tone="secondary" onClick={() => { setErreur(null); setAConfirmer(true); }}>Paiement reçu</SBtn>
+            </>
+          )}
+        </div>
+      </div>
+      {r.cartflox?.remarque && <p className="mt-3 text-[13px] leading-5 text-texte-2">{r.cartflox.remarque}</p>}
+      {erreur && <p role="alert" className="mt-3 text-[13px] leading-5 text-erreur-texte">{erreur}</p>}
+    </li>
+  );
+}
+
+/* ── Un paiement Cartflox à regarder : « Créditer », en deux temps ─────────── */
+
+function LigneAVerifier({ p, onFait }: { p: VuePaiementAVerifier; onFait: (message: string | null) => Promise<void> }) {
+  const [aConfirmer, setAConfirmer] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, demarrer] = useTransition();
+
+  const crediter = () => demarrer(async () => {
+    const res = await crediterPaiement(p.sessionId);
+    setErreur(res.ok ? null : res.erreur);
+    setAConfirmer(false);
+    await onFait(res.ok ? `Recharge ${p.reference} créditée : ${fcfa(p.montant)} pour ${p.beneficiaire}` : null);
+  });
+
+  return (
+    <li className="rounded-[16px] border border-[color:var(--h-filet)] p-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <span className="grid h-12 w-[88px] shrink-0 place-items-center rounded-[12px] bg-[color:var(--h-surface)] font-mono text-[15px] font-medium text-encre/90">{p.reference}</span>
+        <div className="min-w-0 flex-1 basis-[220px]">
+          <p className="truncate text-[15px] leading-5 font-semibold text-encre/95">{p.beneficiaire}</p>
+          <p className="text-[13px] leading-5 text-texte-2">{p.remarque}</p>
+          <p className="font-mono text-[12px] leading-5 text-texte-2">Paiement Cartflox {p.sessionId}</p>
+        </div>
+        <div className="shrink-0 @2xl/page:text-right">
+          <p className="chiffres text-[18px] leading-6 font-semibold text-encre/95">{fcfa(p.montant)}</p>
+          <p className="chiffres text-[13px] leading-5 text-texte-2">{p.encaisse === null ? "Encaissé : inconnu" : `Encaissé : ${fcfa(p.encaisse)}`}</p>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {aConfirmer ? (
+            <>
+              <SBtn tone="secondary" disabled={enCours} onClick={crediter}>{enCours ? "Un instant" : `Oui, créditer ${fcfa(p.montant)}`}</SBtn>
+              <SBtn variant="text" tone="secondary" disabled={enCours} onClick={() => setAConfirmer(false)}>Non</SBtn>
+            </>
+          ) : (
+            <SBtn variant="outlined" tone="secondary" onClick={() => { setErreur(null); setAConfirmer(true); }}>Créditer</SBtn>
           )}
         </div>
       </div>
