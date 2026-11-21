@@ -1,26 +1,37 @@
 import { cn } from "cn";
+import { MARQUE } from "@/lib/marque";
 
-// Logo de Tablée : une table ronde vue d'en haut et ses convives autour. Le mot « tablée » en Public Sans.
-// Couleur : --logo-marque (le vert feuille de bananier).
+// Le logo de la cantine : la marque officielle de Vatel (le bloc noir au « V » et le bandeau bleu « VATEL », relevés sur
+// vatel.ci le 21/11/2026 et rangés tels quels dans public/vatel/), suivie de « Cantine de Vatel ». Tablée reste le nom
+// du logiciel, discret (l'onglet du navigateur). Choix du propriétaire du 21/11/2026.
+// Le logo officiel complet, avec « Hotel & Tourism Business School », est public/vatel/logo-vatel.svg.
 
-export function Table({ className, couleur = "currentColor" }: { className?: string; couleur?: string }) {
-  return (
-    <svg viewBox="0 0 64 64" className={className} aria-hidden="true" focusable="false">
-      <circle cx="32" cy="32" r="15" fill={couleur} />
-      <circle cx="32" cy="7.5" r="5.5" fill={couleur} />
-      <circle cx="56.5" cy="32" r="5.5" fill={couleur} />
-      <circle cx="32" cy="56.5" r="5.5" fill={couleur} />
-      <circle cx="7.5" cy="32" r="5.5" fill={couleur} />
-    </svg>
-  );
+/**
+ * La marque Vatel seule, pour les petites places (le rail de la cantine). Le nom `Table` est gardé pour les écrans qui
+ * l'importent déjà ; `couleur` ne sert plus : le logo garde ses propres couleurs.
+ */
+export function Table({ className }: { className?: string; couleur?: string }) {
+  // Un fichier SVG du dossier public : next/image n'apporte rien ici.
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/vatel/vatel-marque.svg" alt="" aria-hidden="true" className={cn("object-contain", className)} />;
 }
 
+/**
+ * La marque Vatel, puis « Cantine de Vatel » sur deux lignes, en capitales et dans la police du logo (Jost, la version
+ * libre de Futura), comme « Hotel & Tourism / Business School » sous le logo officiel. Les deux lignes ont ensemble la
+ * hauteur de la marque.
+ */
 export function Logo({ className }: { className?: string }) {
+  const [premiere, ...reste] = MARQUE.cantine.split(" ");
   return (
-    <span role="img" aria-label="Tablée"
-      className={cn("inline-flex items-center gap-[0.3em] leading-none font-semibold tracking-[-0.02em] whitespace-nowrap text-encre", className)}>
-      <Table className="size-[0.95em] shrink-0 text-[var(--logo-marque)]" />
-      <span aria-hidden="true">tablée</span>
+    <span role="img" aria-label={MARQUE.cantine}
+      className={cn("inline-flex items-center gap-[0.45em] leading-none whitespace-nowrap text-encre", className)}>
+      <Table className="h-[1.6em] w-auto shrink-0" />
+      <span aria-hidden="true" className="flex flex-col justify-center text-[0.66em] leading-[1.15] font-normal uppercase"
+        style={{ fontFamily: "var(--police-vatel), var(--font-sneat), sans-serif" }}>
+        <span>{premiere}</span>
+        <span>{reste.join(" ")}</span>
+      </span>
     </span>
   );
 }

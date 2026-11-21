@@ -7,13 +7,15 @@
 /* ─────────────────────────────────────────────────────────────────────────
    Tablée sur le kit du tableau de bord de LinkAfr (16/11/2026), le même que Tirabo, Elite et INGEST :
    jetons --h-* et --sn-* recopiés de ~/maboutique-espace-pub (src/app/globals.css), classes hb, h-champ,
-   h-liste, h-case telles quelles. Seul écart voulu : le vert feuille de bananier de Tablée à la place de
-   l'orange de LinkAfr (#1F7A4A en fond, blanc dessus 5,3:1 ; #185A33 pour écrire, 8,2:1 sur blanc ; en
-   sombre #86D6A5 pour écrire, 9,9:1). Le ticket de caisse (plus bas) est le seul style propre à Tablée.
+   h-liste, h-case telles quelles. Seul écart voulu : les couleurs de Vatel (relevées sur vatel.ci le 21/11/2026,
+   choix du propriétaire) à la place de l'orange de LinkAfr. Accent : le bleu Vatel 2 #2B85BB, foncé à #2475A6
+   pour porter du blanc (5:1) et à #1F6A96 pour écrire (5,9:1 sur blanc) ; en sombre, le bleu Vatel #67B2E8 pour
+   écrire. Boutons principaux et ardoise : le bleu Vatel 3, marine #072A5D (blanc dessus 14:1). Le ticket de caisse
+   (plus bas) est le seul style propre à la cantine.
    Le tableau de bord (gérant, cuisine) est en sombre par défaut : classe `dark` sur <html>.
    ───────────────────────────────────────────────────────────────────────── */
-:root { --logo-marque: #1F7A4A; }
-html.dark { --logo-marque: #86D6A5; }
+:root { --logo-marque: #2475A6; }
+html.dark { --logo-marque: #67B2E8; }
 
 :root {
   --background: oklch(1 0 0);
@@ -39,8 +41,8 @@ html.dark { --logo-marque: #86D6A5; }
 
 /* Les jetons vivent au niveau RACINE : les fenêtres et les menus déroulants sont montés hors de la coquille. */
 :root {
-  --sn-primary: 31 122 74;
-  --sn-primary-dark: 24 90 51;
+  --sn-primary: 36 117 166;
+  --sn-primary-dark: 31 106 150;
   --sn-surface: 255 255 255;
   --sn-bg: 255 255 255;
   --sn-side: 250 250 250;
@@ -48,21 +50,21 @@ html.dark { --logo-marque: #86D6A5; }
   --sn-cadre: var(--sn-side);
   --sn-menu: var(--sn-surface);
   --sn-page: var(--sn-surface);
-  --sn-cta: 28 28 28;
+  --sn-cta: 7 42 93;
   --sn-cta-on: 255 255 255;
   --sn-on: 28 28 28;
   --sn-success: 40 167 69;
   --sn-error: 211 47 47;
   --sn-warning: 255 171 0;
-  --sn-info: 31 122 74;
+  --sn-info: 36 117 166;
   --sn-secondary: 133 146 163;
 
   /* ══ Composants du kit de LinkAfr (mesures relevées par LinkAfr le 07/11/2026) : leur violet devient
-     le vert de Tablée (#1F7A4A en fond, #185A33 au survol et pour écrire). ══ */
-  --h-marque: 31 122 74;
-  --h-marque-survol: 24 90 51;
-  --h-marque-texte: 24 90 51;
-  --h-marque-teinte: 31 122 74;
+     le bleu de Vatel (#2475A6 en fond, #1F6A96 au survol et pour écrire, #2B85BB en teinte). ══ */
+  --h-marque: 36 117 166;
+  --h-marque-survol: 31 106 150;
+  --h-marque-texte: 31 106 150;
+  --h-marque-teinte: 43 133 187;
   --h-teinte: 0.1;
   --h-filet: rgb(0 0 0 / 0.1);
   --h-filet-doux: rgb(0 0 0 / 0.05);
@@ -203,7 +205,8 @@ html.dark { --logo-marque: #86D6A5; }
 .sn-fondu { animation: sn-fondu 225ms cubic-bezier(0.4, 0, 0.2, 1) backwards; }
 .sn-depuis-droite { animation: sn-depuis-droite 100ms linear backwards; }
 .sn-depuis-gauche { animation: sn-depuis-gauche 100ms linear backwards; }
-@media (prefers-reduced-motion: reduce) {
+/* À l'impression aussi : l'animation repartirait de son début, et la page sortirait pâle (opacité de 0,3). */
+@media (prefers-reduced-motion: reduce), print {
   .sn-entree, .sn-fondu, .sn-depuis-droite, .sn-depuis-gauche { animation: none; }
 }
 
@@ -231,11 +234,11 @@ html.dark {
   --sn-cadre: var(--sn-bg);
   --sn-menu: var(--sn-surface);
   --sn-page: var(--sn-side);
-  --sn-primary: 134 214 165;
-  --sn-primary-dark: 170 228 192;
-  --sn-info: 134 214 165;
-  /* Le texte de la marque s'éclaircit, les fonds pleins gardent #1F7A4A. */
-  --h-marque-texte: 134 214 165;
+  --sn-primary: 103 178 232;
+  --sn-primary-dark: 135 193 235;
+  --sn-info: 103 178 232;
+  /* Le texte de la marque s'éclaircit (bleu Vatel #67B2E8), les fonds pleins gardent #2475A6. */
+  --h-marque-texte: 103 178 232;
   --h-teinte: 0.2;
   --h-filet: rgb(255 255 255 / 0.1);
   --h-filet-doux: rgb(255 255 255 / 0.05);
@@ -451,35 +454,69 @@ html.dark body { background: rgb(var(--sn-bg)); }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   LE TICKET (le moment de Tablée) : l'addition comme un vrai ticket de caisse. Papier crème, chiffres en
-   chasse fixe, bord bas dentelé découpé par un masque. Il reste papier, même en mode sombre.
+   LE TICKET REPAS (modèle donné par le propriétaire le 21/11/2026) : la partie bleue du repas et le talon blanc au
+   QR, séparés par un pointillé et deux encoches en demi-cercle que le fond traverse vraiment. Chaque partie découpe
+   ses deux coins du côté du pointillé (deux moitiés de masque, une encoche chacune) : aucune hauteur à connaître.
+   Bleu Vatel uni, sans dégradé (règle du projet), marine pour écrire ; il reste clair, même en mode sombre.
    ───────────────────────────────────────────────────────────────────────── */
-.ticket {
-  --papier: #FFFDF8;
-  --dent: 10px;
-  /* Encre et vert d'écriture du clair, même quand le tableau de bord est en sombre : le papier reste clair. */
-  --sn-on: 31 28 23;
-  --h-marque-texte: 24 90 51;
+.ticket-repas {
+  --encoche: 12px;
+  /* Encre et bleu d'écriture du ticket, même quand le tableau de bord est en sombre. */
+  --sn-on: 7 42 93;
+  --h-marque-texte: 7 42 93;
   position: relative;
-  background: var(--papier);
-  color: #1F1C17;
-  font-family: var(--police-ticket), ui-monospace, monospace;
+  display: flex;
+  color: #072A5D;
   font-variant-numeric: tabular-nums;
-  padding-bottom: calc(var(--dent) + 12px);
-  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--dent)) 100%;
-  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--dent)) 100%;
+  /* Le masque coupe les ombres : l'ombre se pose ici, sur le parent, et suit les encoches. */
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.08)) drop-shadow(0 10px 18px rgb(0 0 0 / 0.22));
 }
-/* Le masque coupe les ombres : l'ombre se pose sur un parent, qui suit la dentelure. */
-.ticket-ombre { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.06)) drop-shadow(0 8px 14px rgb(0 0 0 / 0.12)); }
-html.dark .ticket-ombre { filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.5)); }
-.ticket-filet { border-top: 1px dashed rgb(31 28 23 / 0.28); }
+.ticket-repas__partie { position: relative; background: #67B2E8; }
+.ticket-repas__talon { position: relative; background: #FFFFFF; }
+.ticket-repas--eteint .ticket-repas__partie { background: #CDD3DC; }
+.ticket-repas__talon::before { content: ""; position: absolute; border: 0 dashed rgb(7 42 93 / 0.3); }
+
+/* Debout (l'écran du ticket) : la partie bleue en haut, le pointillé en travers, les encoches à gauche et à droite. */
+.ticket-repas--debout { flex-direction: column; }
+.ticket-repas--debout .ticket-repas__partie {
+  border-radius: 8px 8px 0 0;
+  -webkit-mask: radial-gradient(circle at 0 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) right / 51% 100% no-repeat;
+  mask: radial-gradient(circle at 0 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) right / 51% 100% no-repeat;
+}
+.ticket-repas--debout .ticket-repas__talon {
+  border-radius: 0 0 8px 8px;
+  -webkit-mask: radial-gradient(circle at 0 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) right / 51% 100% no-repeat;
+  mask: radial-gradient(circle at 0 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) right / 51% 100% no-repeat;
+}
+.ticket-repas--debout .ticket-repas__talon::before { top: 0; left: calc(var(--encoche) + 8px); right: calc(var(--encoche) + 8px); border-top-width: 2px; }
+
+/* Couché (la carte « Aujourd'hui ») : la partie bleue à gauche, le talon à droite, les encoches en haut et en bas. */
+.ticket-repas--couche .ticket-repas__partie {
+  border-radius: 8px 0 0 8px;
+  -webkit-mask: radial-gradient(circle at 100% 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) top / 100% 51% no-repeat,
+    radial-gradient(circle at 100% 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) bottom / 100% 51% no-repeat;
+  mask: radial-gradient(circle at 100% 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) top / 100% 51% no-repeat,
+    radial-gradient(circle at 100% 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) bottom / 100% 51% no-repeat;
+}
+.ticket-repas--couche .ticket-repas__talon {
+  border-radius: 0 8px 8px 0;
+  -webkit-mask: radial-gradient(circle at 0 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) top / 100% 51% no-repeat,
+    radial-gradient(circle at 0 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) bottom / 100% 51% no-repeat;
+  mask: radial-gradient(circle at 0 0, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) top / 100% 51% no-repeat,
+    radial-gradient(circle at 0 100%, #0000 var(--encoche), #000 calc(var(--encoche) + 0.5px)) bottom / 100% 51% no-repeat;
+}
+.ticket-repas--couche .ticket-repas__talon::before { left: 0; top: calc(var(--encoche) + 8px); bottom: calc(var(--encoche) + 8px); border-left-width: 2px; }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   MENU DU CONVIVE (modèle validé le 17/11/2026) : l'ardoise du maquis, le rail des rubriques à gauche, et l'onglet
+   MENU DU CONVIVE (modèle validé le 17/11/2026) : l'ardoise, en marine Vatel depuis le 21/11/2026, le rail des rubriques à gauche, et l'onglet
    choisi qui se fond dans la carte blanche des plats, avec ses deux arrondis creusés.
    ───────────────────────────────────────────────────────────────────────── */
 .ardoise {
-  background-color: #252524;
+  background-color: #072A5D;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Cfilter id='t'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.006' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23t)'/%3E%3C/svg%3E");
   color: rgb(255 255 255 / 0.9);
 }

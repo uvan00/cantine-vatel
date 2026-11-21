@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: { default: `${MARQUE.nom}, ${MARQUE.slogan.toLowerCase()}`, template: `%s | ${MARQUE.nom}` },
   description: "Réserve ton repas, montre ton ticket au comptoir, recharge ton compte en Mobile Money.",
   robots: { index: false, follow: false },
+  // Posée sur l'écran d'accueil d'un iPhone : le nom sous l'icône, et l'ouverture sans la barre de Safari.
+  appleWebApp: { capable: true, title: MARQUE.court, statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = { themeColor: "#FFFFFF" };

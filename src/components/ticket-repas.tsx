@@ -1,12 +1,14 @@
+import { Table } from "@/components/brand";
 import { dateLongue, fcfa } from "@/lib/format";
 import { jourLong } from "@/lib/jours";
-import { MARQUE } from "@/lib/marque";
 import { heureH, type EtatAffiche } from "@/lib/reservation";
 
-// LE TICKET REPAS : le moment de la cantine. Il est dessiné comme un vrai ticket de caisse (papier, chasse fixe, bord
-// dentelé : classes .ticket et .ticket-ombre de globals.css). Le comptoir scanne son QR, et le tampon « SERVI » tombe
-// dessus. Un ticket annulé porte « ANNULÉ » en gris, un repas jamais retiré « NON RETIRÉ ». Le tampon a sa place
-// réservée : rien ne bouge quand il arrive.
+// LE TICKET REPAS : le moment de la cantine, dessiné d'après le modèle de tickets repas donné par le propriétaire le
+// 21/11/2026 (classes .ticket-repas de globals.css). La partie bleue porte le repas et la marque Vatel, le talon blanc
+// porte le QR et le code court, un pointillé et deux encoches les séparent. Le code court tient la place du code-barres
+// du modèle (il sert au comptoir si la caméra ne lit pas le QR). Le comptoir scanne, et le tampon « SERVI » tombe. Un
+// ticket annulé porte « ANNULÉ », un repas jamais retiré « NON RETIRÉ », et la partie bleue passe au gris. Le tampon a
+// sa place réservée : rien ne bouge quand il arrive.
 // Sans état propre : il sert tel quel au serveur comme à l'écran qui le relit en direct.
 
 /**
@@ -19,11 +21,13 @@ const CSS_CHUTE = `
 @media (prefers-reduced-motion: reduce) { .tampon-tombe { animation: none; } }
 `;
 
+const eteint = (etat: EtatAffiche) => etat === "annulee" || etat === "non_retiree";
+
 function Tampon({ etat, serviLe, tombe = false, petit = false, className = "" }: {
   etat: EtatAffiche;
   serviLe: string | null;
   tombe?: boolean;
-  /** Sur le talon : le mot seul, en plus petit (l'heure est écrite à côté). */
+  /** Sur le ticket couché : le mot seul, en plus petit. */
   petit?: boolean;
   className?: string;
 }) {
@@ -32,10 +36,10 @@ function Tampon({ etat, serviLe, tombe = false, petit = false, className = "" }:
   const heure = servi && serviLe ? `à ${heureH(serviLe)}` : null;
   return (
     <div role="img" aria-label={servi ? `Servi ${heure ?? ""}`.trim() : etat === "annulee" ? "Annulé" : "Non retiré"}
-      className={`pointer-events-none absolute -rotate-8 text-center opacity-80 mix-blend-multiply ${petit ? "rounded-[8px] border-2 px-2 py-0.5" : "rounded-[10px] border-[3px] px-3 py-1"} ${servi ? "border-marque text-marque" : "border-encre/45 text-encre/45"} ${tombe ? "tampon-tombe" : ""} ${className}`}>
+      className={`pointer-events-none absolute -rotate-8 text-center opacity-85 mix-blend-multiply ${petit ? "rounded-[8px] border-2 px-2 py-0.5" : "rounded-[10px] border-[3px] px-3 py-1"} ${servi ? "border-[#072A5D] text-[#072A5D]" : "border-[#072A5D]/55 text-[#072A5D]/55"} ${tombe ? "tampon-tombe" : ""} ${className}`}>
       {etat === "non_retiree" ? (
         // Deux mots : sur deux lignes, un peu plus petits, pour tenir dans la place du tampon.
-        <p aria-hidden="true" className="text-[20px] leading-6 font-semibold tracking-[0.08em]">NON<br />RETIRÉ</p>
+        <p aria-hidden="true" className={`font-semibold tracking-[0.08em] ${petit ? "text-[14px] leading-4" : "text-[20px] leading-6"}`}>NON<br />RETIRÉ</p>
       ) : (
         <p aria-hidden="true" className={`font-semibold tracking-[0.08em] ${petit ? "text-[18px] leading-6" : "text-[26px] leading-8"}`}>{servi ? "SERVI" : "ANNULÉ"}</p>
       )}
@@ -43,6 +47,9 @@ function Tampon({ etat, serviLe, tombe = false, petit = false, className = "" }:
     </div>
   );
 }
+
+/** La marque Vatel, avec un liseré blanc : sur le bleu du ticket, son bandeau bleu se détache. */
+const Marque = ({ className }: { className: string }) => <Table className={`w-auto shrink-0 rounded-[2px] ring-2 ring-white ${className}`} />;
 
 export type DonneesTicket = {
   /** Le nom du convive. */
@@ -58,8 +65,8 @@ export type DonneesTicket = {
 };
 
 /**
- * Le ticket entier, avec son QR (le SVG de qrSvg, fabriqué par le serveur) et son code court. Tout ce qui précède le QR
- * est tenu serré : au comptoir, le QR doit se voir sans faire défiler, même dans un navigateur de téléphone.
+ * Le ticket debout, pour son écran : la partie bleue en haut, le talon au QR en bas. Tout ce qui précède le QR est
+ * tenu serré : au comptoir, le QR doit se voir sans faire défiler, même dans un navigateur de téléphone.
  */
 export function TicketRepas({ ticket, qr, etat, serviLe, tombe = false, className = "" }: {
   ticket: DonneesTicket;
@@ -71,77 +78,68 @@ export function TicketRepas({ ticket, qr, etat, serviLe, tombe = false, classNam
   className?: string;
 }) {
   return (
-    <div className={`ticket-ombre mx-auto w-full max-w-[340px] ${className}`}>
+    <div className={`ticket-repas ticket-repas--debout mx-auto w-full max-w-[360px] ${eteint(etat) ? "ticket-repas--eteint" : ""} ${className}`}>
       <style>{CSS_CHUTE}</style>
-      <div className="ticket px-5 pt-4 text-[14px] leading-5">
-        <p className="text-center text-[16px] leading-6 font-medium">{MARQUE.cantine}</p>
-        <p className="text-center text-encre/65">Ticket repas</p>
-
-        <div className="ticket-filet my-3" />
-
-        <dl className="space-y-1">
-          <div className="flex justify-between gap-3">
-            <dt className="shrink-0 text-encre/65">Convive</dt>
-            <dd className="min-w-0 text-right">{ticket.convive}</dd>
+      <div className="ticket-repas__partie px-5 pt-5 pb-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[15px] leading-5 font-bold">Ticket repas</p>
+            <p className="mt-2 text-[24px] leading-[30px] font-semibold">{ticket.plat}</p>
+            <p className="mt-1 text-[14px] leading-5 opacity-75">{ticket.convive}</p>
           </div>
-          <div className="flex justify-between gap-3">
-            <dt className="shrink-0 text-encre/65">Pour</dt>
-            <dd className="min-w-0 text-right">{jourLong(ticket.jour)}</dd>
-          </div>
-        </dl>
-
-        <div className="ticket-filet my-3" />
-
-        {/* Le plat et son prix à gauche ; à droite, la place du tampon, gardée qu'il soit là ou pas encore : rien ne
-            bouge quand il tombe. Tant que le comptoir n'a pas tamponné, un cadre en pointillé l'attend. */}
-        <div className="relative min-h-[68px] pr-[120px]">
-          <p className="text-[16px] leading-6 font-medium">{ticket.plat}</p>
-          <p className="text-[16px] leading-6 font-medium">{fcfa(ticket.prix)}</p>
-          <p className="text-encre/65">{etat === "annulee" ? "Rendu sur ton solde" : "Payé avec ton solde"}</p>
+          <Marque className="h-10" />
+        </div>
+        {/* Le jour et le prix à gauche ; à droite, la place du tampon, gardée qu'il soit là ou pas encore. Tant que le
+            comptoir n'a pas tamponné, un cadre en pointillé l'attend. */}
+        <div className="relative mt-5 min-h-[64px] pr-[124px]">
+          <p className="text-[18px] leading-6 font-bold first-letter:uppercase">{jourLong(ticket.jour)}</p>
+          <p className="mt-0.5 font-mono text-[14px] leading-5 opacity-80">{fcfa(ticket.prix)}</p>
+          <p className="text-[13px] leading-5 opacity-70">{etat === "annulee" ? "Rendu sur ton solde" : "Payé avec ton solde"}</p>
           {etat === "reservee" && (
-            <p className="absolute top-1 right-0 grid h-[60px] w-[116px] -rotate-8 place-items-center rounded-[10px] border border-dashed border-encre/30 px-1 text-center text-[12px] leading-4 text-encre/55">
+            <p className="absolute right-0 bottom-0 grid h-[60px] w-[116px] -rotate-8 place-items-center rounded-[10px] border border-dashed border-[#072A5D]/45 px-1 text-center text-[12px] leading-4 opacity-75">
               ici, le tampon du comptoir
             </p>
           )}
-          <Tampon etat={etat} serviLe={serviLe} tombe={tombe} className="top-1 right-0" />
+          <Tampon etat={etat} serviLe={serviLe} tombe={tombe} className="right-0 bottom-0" />
         </div>
-
-        <div className="ticket-filet my-3" />
-
-        <div className="mx-auto size-[180px] [&>svg]:size-full" role="img" aria-label="Le QR de ton ticket" dangerouslySetInnerHTML={{ __html: qr }} />
-        <p className="mt-3 pl-[0.3em] text-center text-[28px] leading-9 font-medium tracking-[0.3em]">{ticket.code}</p>
-        <p className="text-center text-[13px] leading-5 text-encre/65">Si le QR ne passe pas, donne ce code</p>
-
-        <div className="ticket-filet my-3" />
-
-        <p className="text-center text-[13px] leading-5 text-encre/65">Réservé le {dateLongue(ticket.reserveLe)}</p>
+      </div>
+      <div className="ticket-repas__talon px-5 pt-6 pb-5">
+        <div className="mx-auto size-[196px] [&>svg]:size-full" role="img" aria-label="Le QR de ton ticket" dangerouslySetInnerHTML={{ __html: qr }} />
+        <p className="mt-3 pl-[0.3em] text-center font-mono text-[28px] leading-9 font-medium tracking-[0.3em]">{ticket.code}</p>
+        <p className="text-center text-[13px] leading-5 opacity-70">Si le QR ne passe pas, donne ce code</p>
+        <p className="mt-3 text-center text-[12px] leading-4 opacity-55">Réservé le {dateLongue(ticket.reserveLe)}</p>
       </div>
     </div>
   );
 }
 
-/** Le talon du ticket, pour la liste : le plat, le jour, le code court, et le tampon s'il est déjà servi. Sans QR. */
-export function TalonTicket({ ticket, etat, serviLe, className = "" }: {
+/**
+ * Le ticket couché, pour la carte « Aujourd'hui » de la liste : le plat et le jour à gauche, le QR et le code court sur
+ * le talon. Le tampon tombe en travers du talon : une fois servi, le QR n'a plus rien à dire.
+ */
+export function TalonTicket({ ticket, qr, etat, serviLe, className = "" }: {
   ticket: Pick<DonneesTicket, "plat" | "jour" | "prix" | "code">;
+  qr: string;
   etat: EtatAffiche;
   serviLe: string | null;
   className?: string;
 }) {
   return (
-    <div className={`ticket-ombre ${className}`}>
-      <div className="ticket relative px-4 pt-4 text-[14px] leading-5">
-        <div className="flex justify-between gap-3 text-encre/65">
-          <p>Ticket repas</p>
-          <p className="tracking-[0.12em]">{ticket.code}</p>
+    <div className={`ticket-repas ticket-repas--couche ${eteint(etat) ? "ticket-repas--eteint" : ""} ${className}`}>
+      <div className="ticket-repas__partie min-w-0 flex-1 px-4 pt-4 pb-4">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-[14px] leading-5 font-bold">Ticket repas</p>
+          <Marque className="h-8" />
         </div>
-        <div className="ticket-filet my-3" />
-        <div className="flex justify-between gap-3 text-[16px] leading-6 font-medium">
-          <p className="min-w-0">{ticket.plat}</p>
-          <p className="shrink-0">{fcfa(ticket.prix)}</p>
-        </div>
-        <p className="mt-1 text-encre/65">{jourLong(ticket.jour)}</p>
-        <Tampon etat={etat} serviLe={serviLe} petit className="right-4 bottom-3" />
+        <p className="mt-1 line-clamp-2 text-[18px] leading-6 font-semibold">{ticket.plat}</p>
+        <p className="mt-3 text-[14px] leading-5 font-bold first-letter:uppercase">{jourLong(ticket.jour)}</p>
+        <p className="font-mono text-[13px] leading-5 opacity-80">{fcfa(ticket.prix)}</p>
       </div>
+      <div className="ticket-repas__talon flex w-[112px] shrink-0 flex-col items-center justify-center px-3 py-4">
+        <div className="size-[80px] [&>svg]:size-full" role="img" aria-label="Le QR de ton ticket" dangerouslySetInnerHTML={{ __html: qr }} />
+        <p className="mt-2 pl-[0.2em] font-mono text-[16px] leading-5 font-semibold tracking-[0.2em]">{ticket.code}</p>
+      </div>
+      <Tampon etat={etat} serviLe={serviLe} petit className="top-1/2 right-5 -translate-y-1/2" />
     </div>
   );
 }
