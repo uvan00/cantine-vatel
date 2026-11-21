@@ -4,25 +4,28 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalSt
 import { EtiquettesAliments } from "@/components/allergene";
 import { Avatar } from "@/components/avatar";
 import { useRouter } from "next/navigation";
-import { EnTetePage } from "@/components/fenetre";
+import { EnTetePage, useConfirmation } from "@/components/fenetre";
 import { AlertTriangle, Ban, Camera, CheckCircle2 } from "@/components/icons";
-import { SBtn, SChargement } from "@/components/sneat";
+import { PhotoPlat } from "@/components/photo-plat";
+import { SAlert, SBtn, SChargement } from "@/components/sneat";
 import { creneauLisible } from "@/lib/creneaux";
 import type { TicketLocal, VueTicket } from "@/lib/donnees-admin";
 import type { Etiquette } from "@/lib/listes";
-import { nombre } from "@/lib/format";
+import { fcfa, nombre } from "@/lib/format";
 import { jourIso } from "@/lib/jours";
-import { scanner as verdictScan } from "@/lib/reservation";
+import { MOYENS_COMPTOIR, nomDeLaFile, scanner as verdictScan, type MoyenComptoir } from "@/lib/reservation";
 import type { ChiffresService } from "@/lib/statistiques";
 import { lireCle, nettoyerCode } from "@/lib/ticket";
 import { servirALaBorne } from "@/app/borne/actions";
-import { servirEnRetard, servirTicket, type ReponseEnRetard, type ReponseService } from "../actions";
+import { encaisserTicket, servirBadge, servirEnRetard, servirTicket, type ReponseEnRetard, type ReponseService } from "../actions";
 
 // Le scanner du comptoir : la caméra arrière lit le QR du ticket, le serveur répond, la réponse s'affiche en grand.
 // Le champ « Code du ticket » reste toujours là : la caméra peut manquer, être refusée, ou demander une adresse en https.
 // Sans réseau (le pointage continue hors ligne), il sert d'après sa copie des tickets du
 // jour, avec la même règle, et envoie ces services au serveur dès le retour du réseau. En borne (/borne :
 // l'élève pointe lui-même à l'entrée), il accueille l'élève par son prénom.
+// Les trois files (21/11/2026) : un ticket payé est servi tout de suite (express) ; un ticket réservé sans payer ouvre
+// la caisse, qui choisit le moyen (réservation) ; un badge sans repas ouvre le choix du plat, puis la caisse (classique).
 
 /** La copie des tickets du jour et la file des services faits hors ligne, gardées sur l'appareil de la cantine. */
 const CLE_TICKETS = "cantine.tickets";
@@ -102,10 +105,13 @@ async function lireQr(video: HTMLVideoElement, lecteur: Lecteur): Promise<string
 /* ── Les états de l'écran ──────────────────────────────────────────────────── */
 
 type EtatCamera = "attente" | "prete" | "sans_https" | "refusee" | "absente" | "panne";
-/** lecture : on cherche un QR ; envoi : le serveur vérifie ; reponse : la réponse en grand ; ticket : un ticket ouvert par son adresse. */
-type Phase = "lecture" | "envoi" | "reponse" | "ticket";
+/**
+ * lecture : on cherche un QR ; envoi : le serveur vérifie ; reponse : la réponse en grand ; ticket : un ticket ouvert par
+ * son adresse ; caisse : un repas à encaisser (ticket à payer, ou badge sans réservation), l'écran attend la caisse.
+ */
+type Phase = "lecture" | "envoi" | "reponse" | "ticket" | "caisse";
 type Reponse = (ReponseService & { horsLigne?: boolean })
-  | { genre: "panne"; phrase: string; convive?: undefined; conviveId?: undefined; photo?: undefined; prenom?: undefined; plat?: undefined; service?: undefined; creneau?: undefined; allergies?: undefined; enCause?: undefined; voirLaCantine?: undefined; horsLigne?: undefined };
+  | { genre: "panne"; phrase: string; convive?: undefined; conviveId?: undefined; photo?: undefined; prenom?: undefined; plat?: undefined; service?: undefined; creneau?: undefined; allergies?: undefined; enCause?: undefined; voirLaCantine?: undefined; horsLigne?: undefined; file?: undefined; paiement?: undefined };
 type Ton = "reussite" | "attention" | "erreur";
 
 /** Le ticket désigné par l'adresse de la page (`?cle=`), ou « inconnu » si rien ne correspond. */
@@ -119,7 +125,12 @@ const TON: Record<Reponse["genre"], Ton> = {
   inconnu: "erreur",
   refuse: "erreur",
   panne: "erreur",
+  a_payer: "attention",
+  sans_repas: "attention",
 };
+
+/** Après « Servi », pour la caisse : comment le repas a été payé. */
+const PAYE: Record<string, string> = { solde: "payé sur son solde", especes: "payé en espèces", mobile_money: "payé par Mobile Money" };
 
 const HABIT: Record<Ton, { fond: string; encre: string; Icone: typeof CheckCircle2 }> = {
   reussite: { fond: "rgb(var(--h-succes-teinte) / var(--h-teinte))", encre: "rgb(var(--h-succes-texte))", Icone: CheckCircle2 },
@@ -134,7 +145,14 @@ const SANS_CAMERA: Record<Exclude<EtatCamera, "attente" | "prete">, string> = {
   panne: "La caméra ne répond pas : recharge la page, ou tape le code du ticket",
 };
 
-export function ScannerClient({ service: serviceInitial, ticket, borne = false }: { service: ChiffresService; ticket: TicketOuvert | null; /** L'écran de la borne d'entrée (/borne). */ borne?: boolean }) {
+export function ScannerClient({ service: serviceInitial, ticket, borne = false, badge = null }: {
+  service: ChiffresService;
+  ticket: TicketOuvert | null;
+  /** L'écran de la borne d'entrée (/borne). */
+  borne?: boolean;
+  /** Un badge désigné par l'adresse de la page, sans repas réservé aujourd'hui : la caisse s'ouvre dessus. */
+  badge?: string | null;
+}) {
   const router = useRouter();
   const video = useRef<HTMLVideoElement>(null);
   const lecteur = useRef<Lecteur>({});
@@ -146,7 +164,7 @@ export function ScannerClient({ service: serviceInitial, ticket, borne = false }
   const [essaiCamera, setEssaiCamera] = useState(0);
   const [refusDefinitif, setRefusDefinitif] = useState(false);
   const redemanderCamera = () => { setCamera("attente"); setEssaiCamera((n) => n + 1); };
-  const [phase, setPhase] = useState<Phase>(ticket ? "ticket" : "lecture");
+  const [phase, setPhase] = useState<Phase>(ticket ? "ticket" : badge && !borne ? "envoi" : "lecture");
   const [reponse, setReponse] = useState<Reponse | null>(null);
   const [service, setService] = useState(serviceInitial);
   const [code, setCode] = useState("");
@@ -155,6 +173,9 @@ export function ScannerClient({ service: serviceInitial, ticket, borne = false }
   const file = useMemo<EnAttente[]>(() => { try { return JSON.parse(fileBrute) as EnAttente[]; } catch { return []; } }, [fileBrute]);
   const [horsLigne, setHorsLigne] = useState(false);
   const [aVerifier, setAVerifier] = useState<ReponseEnRetard[]>([]);
+  // La caisse ouverte : la clé lue (le ticket ou le badge), ce que le serveur en a dit, et la raison d'un refus.
+  const [caisse, setCaisse] = useState<{ cle: string; reponse: ReponseService; erreur: string | null } | null>(null);
+  const [enCaisse, setEnCaisse] = useState(false);
 
   // La copie des tickets du jour : relue sur l'appareil à l'arrivée, puis rafraîchie chaque minute tant que le réseau répond.
   useEffect(() => {
@@ -189,7 +210,9 @@ export function ScannerClient({ service: serviceInitial, ticket, borne = false }
     // Une carte de cantine désigne le repas du jour de son élève (un ticket non annulé).
     const t = copie.liste.find((x) => ("jeton" in lue ? x.jeton === lue.jeton : "carte" in lue ? x.carte === lue.carte && x.etat !== "annulee" : x.code === lue.code));
     if (!t) return { genre: "inconnu", phrase: "carte" in lue ? "Pas de repas aujourd'hui pour cette carte, d'après cet appareil" : "Ticket inconnu de cet appareil", horsLigne: true };
-    const v = verdictScan({ etat: t.etat, jour: t.jour, serviLe: t.serviLe }, Date.now());
+    const v = verdictScan({ etat: t.etat, jour: t.jour, serviLe: t.serviLe, paiement: t.paiement, prix: t.prix }, Date.now());
+    // Sans réseau, on ne note pas un paiement : le ticket à payer attend.
+    if (v.genre === "a_payer") v.phrase = `${v.phrase}, au retour du réseau`;
     if (v.genre === "servi") {
       t.etat = "servie";
       t.serviLe = new Date().toISOString();
@@ -235,12 +258,57 @@ export function ScannerClient({ service: serviceInitial, ticket, borne = false }
         ? { genre: "panne", phrase: "Pas de réseau, passe au comptoir avec ton ticket" }
         : servirHorsLigne(cle) ?? { genre: "panne", phrase: "Le réseau ne répond pas, réessaie" };
     }
+    recevoir(cle, r);
+  };
+
+  /** Ce que le serveur (ou la copie hors ligne) a répondu pour cette clé : la caisse s'ouvre, ou la réponse s'affiche. */
+  const recevoir = (cle: string, r: Reponse) => {
     // Le serveur n'a rien pu dire de ce ticket : le même QR doit pouvoir être relu tout de suite.
     if (r.genre === "panne" || r.genre === "refuse") dernierQr.current = { texte: "", quand: 0 };
     if (r.service) setService(r.service);
+    // Un ticket à payer, ou un badge sans repas réservé : la caisse s'ouvre et attend (pas à la borne, pas sans réseau).
+    if (!borne && !r.horsLigne && (r.genre === "a_payer" || r.genre === "sans_repas")) {
+      setCaisse({ cle, reponse: r, erreur: null });
+      setPhase("caisse");
+      return;
+    }
     setReponse(r);
     setPhase("reponse");
   };
+
+  /** La caisse a choisi : le serveur encaisse et sert. Refusé (solde trop court, plat complet), elle reste ouverte et dit pourquoi. */
+  const encaisser = async (geste: () => Promise<ReponseService>) => {
+    if (!caisse || enCaisse) return;
+    setEnCaisse(true);
+    let r: ReponseService | null;
+    try { r = await geste(); } catch { r = null; }
+    setEnCaisse(false);
+    if (!r) { setCaisse({ ...caisse, erreur: "Le réseau ne répond pas, réessaie" }); return; }
+    if (r.service) setService(r.service);
+    if (r.genre === "a_payer" || r.genre === "sans_repas") {
+      setCaisse({ cle: caisse.cle, reponse: { ...caisse.reponse, ...r, plats: r.plats ?? caisse.reponse.plats }, erreur: r.phrase });
+      return;
+    }
+    setCaisse(null);
+    setReponse(r);
+    setPhase("reponse");
+  };
+  const laisserLaCaisse = () => { setCaisse(null); dernierQr.current = { texte: "", quand: 0 }; setPhase("lecture"); };
+
+  // Le badge désigné par l'adresse : on demande au serveur ce qu'il peut prendre (une lecture), et la caisse s'ouvre
+  // quand il répond. L'adresse redevient celle du scanner.
+  const surBadge = useEffectEvent((cle: string, r: Reponse) => {
+    recevoir(cle, r);
+    router.replace("/admin/scanner", { scroll: false });
+  });
+  useEffect(() => {
+    if (!badge || borne) return;
+    let quitte = false;
+    servirTicket(badge)
+      .then((r) => { if (!quitte) surBadge(badge, r); })
+      .catch(() => { if (!quitte) surBadge(badge, { genre: "panne", phrase: "Le réseau ne répond pas, réessaie" }); });
+    return () => { quitte = true; };
+  }, [badge, borne]);
 
   /** Le ticket ouvert par son adresse est traité (servi ou laissé) : l'adresse redevient celle du scanner. */
   const quitterLeTicket = () => router.replace("/admin/scanner", { scroll: false });
@@ -415,6 +483,12 @@ export function ScannerClient({ service: serviceInitial, ticket, borne = false }
             {phase === "ticket" && ticket && (
               <TicketTrouve ticket={ticket} onServir={(cle) => void servirLeTicket(cle)} onLaisser={laisserLeTicket} />
             )}
+
+            {phase === "caisse" && caisse && (
+              <Caisse key={caisse.cle} reponse={caisse.reponse} erreur={caisse.erreur} enCours={enCaisse} onLaisser={laisserLaCaisse}
+                onEncaisser={(moyen) => void encaisser(() => encaisserTicket(caisse.cle, moyen))}
+                onPrendre={(menuJourId, moyen) => void encaisser(() => servirBadge(caisse.cle, menuJourId, moyen))} />
+            )}
           </div>
 
           {phase === "reponse" && (
@@ -471,7 +545,10 @@ function GrandeReponse({ reponse, borne }: { reponse: Reponse; borne: boolean })
           {/* Pas à la borne : elle est tournée vers la file, et l'allergie d'un élève ne regarde que lui et la cantine. */}
           {!borne && reponse.convive && <Allergies etiquettes={reponse.allergies ?? []} enCause={reponse.enCause ?? []} />}
           {borne && reponse.voirLaCantine && <p className="mt-3 text-[20px] leading-7 font-semibold text-encre/95">Passe d&apos;abord voir la cantine avec ton ticket</p>}
-          {reponse.horsLigne && <p className="mt-2 text-[13px] leading-5 text-encre/60">Hors ligne : envoyé au serveur dès le retour du réseau</p>}
+          {!borne && reponse.genre === "servi" && reponse.file && (
+            <p className="mt-2 text-[14px] leading-5 text-encre/75">{nomDeLaFile(reponse.file)}{PAYE[reponse.paiement ?? ""] ? `, ${PAYE[reponse.paiement ?? ""]}` : ""}</p>
+          )}
+          {reponse.horsLigne && reponse.genre === "servi" && <p className="mt-2 text-[13px] leading-5 text-encre/60">Hors ligne : envoyé au serveur dès le retour du réseau</p>}
         </div>
       </div>
     </div>
@@ -506,6 +583,112 @@ function Allergies({ etiquettes, enCause = [] }: { etiquettes: Etiquette[]; enCa
   );
 }
 
+/* ── La caisse : encaisser un ticket à payer, servir un badge sans réservation ── */
+
+/**
+ * La file réservation (un ticket réservé sans payer) : le montant, puis le moyen. La file classique (un badge sans
+ * repas réservé) : les plats du jour, celui que le convive choisit, puis le moyen. Dans les deux cas, le serveur
+ * encaisse et sert dans le même geste, et note qui a encaissé.
+ */
+function Caisse({ reponse, erreur, enCours, onEncaisser, onPrendre, onLaisser }: {
+  reponse: ReponseService;
+  /** Pourquoi le dernier geste n'a pas servi (solde trop court, plat complet), ou null. */
+  erreur: string | null;
+  enCours: boolean;
+  onEncaisser: (moyen: MoyenComptoir) => void;
+  onPrendre: (menuJourId: string, moyen: MoyenComptoir) => void;
+  onLaisser: () => void;
+}) {
+  const [platId, setPlatId] = useState<string | null>(null);
+  const sansRepas = reponse.genre === "sans_repas";
+  const plats = reponse.plats ?? [];
+  const plat = plats.find((p) => p.id === platId && p.refus === null) ?? null;
+  const prix = sansRepas ? plat?.prix ?? null : reponse.prix ?? null;
+  const solde = reponse.solde ?? 0;
+  const { confirmer, fenetre } = useConfirmation();
+  // Espèces et Mobile Money : un geste. Le solde de l'élève se débite pour de bon et un repas servi ne se défait plus :
+  // la caisse le confirme d'abord (un bouton voisin touché par erreur ferait payer deux fois).
+  const payer = async (moyen: MoyenComptoir) => {
+    if (sansRepas && !plat) return;
+    if (moyen === "solde" && prix !== null) {
+      const oui = await confirmer({
+        titre: "Débiter son solde ?",
+        message: `${reponse.convive ?? "Ce convive"} paie ${fcfa(prix)} avec son solde, et son repas sera noté servi. Ce geste ne se défait pas.`,
+        libelle: "Débiter et servir",
+        corbeille: false,
+      });
+      if (!oui) return;
+    }
+    if (sansRepas) { if (plat) onPrendre(plat.id, moyen); } else onEncaisser(moyen);
+  };
+  return (
+    // Dans le flux, à la proportion du cadre, comme la grande réponse : une courte caisse le remplit, une longue liste
+    // de plats le fait grandir au lieu d'être coupée.
+    <div className="relative grid aspect-square place-items-center bg-surface p-5 text-center shadow-[inset_0_0_0_1px_var(--h-filet)] @xl/page:aspect-[4/3]" style={{ borderRadius: 24 }}>
+      <div className="w-full min-w-0">
+      <p className="mx-auto w-fit rounded-full px-3 py-1 text-[13px] leading-5 font-semibold" style={{ background: HABIT.attention.fond, color: HABIT.attention.encre }}>
+        {nomDeLaFile(sansRepas ? "classique" : "reservation")}
+      </p>
+      {reponse.convive && (
+        <div className="mt-3 flex flex-col items-center gap-2">
+          {reponse.conviveId && <Avatar id={reponse.conviveId} nom={reponse.convive} photo={reponse.photo} taille={64} />}
+          <p className="text-[22px] leading-7 font-semibold text-encre/95">{reponse.convive}</p>
+        </div>
+      )}
+      {sansRepas
+        ? <p className="mt-1 text-[15px] leading-6 text-encre/75">Pas de repas réservé aujourd&apos;hui : quel plat prend-il ?</p>
+        : reponse.plat && <p className="mt-1 text-[16px] leading-6 text-encre/75">{reponse.plat}{reponse.creneau ? `, passage à ${creneauLisible(reponse.creneau)}` : ""}</p>}
+      {reponse.convive && <Allergies etiquettes={reponse.allergies ?? []} enCause={sansRepas ? [] : reponse.enCause ?? []} />}
+
+      {sansRepas && (plats.length === 0 ? (
+        <p className="mt-4 rounded-[16px] border border-dashed border-[color:var(--h-surface-forte)] px-4 py-6 text-[14px] leading-5 text-texte-2">Rien au menu aujourd&apos;hui</p>
+      ) : (
+        <ul className="mt-4 space-y-2 text-left">
+          {plats.map((p) => {
+            const choisi = p.id === plat?.id;
+            return (
+              <li key={p.id}>
+                <button type="button" disabled={p.refus !== null || enCours} aria-pressed={choisi} onClick={() => setPlatId(p.id)}
+                  className={`flex w-full items-center gap-3 rounded-[16px] border p-2 pr-3 text-left transition-colors disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(var(--h-marque-texte))] ${choisi ? "border-[rgb(var(--h-marque-texte))] bg-[rgb(var(--h-marque-teinte)/var(--h-teinte))]" : "border-[color:var(--h-filet)] bg-surface hover:bg-[color:var(--h-filet-doux)]"}`}>
+                  <span className="w-20 shrink-0 overflow-hidden rounded-[10px]"><PhotoPlat photo={p.photo} nom="" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] leading-5 font-semibold text-encre/95">{p.nom}</span>
+                    <span className="chiffres block text-[13px] leading-5 text-texte-2">{p.refus ?? (p.restantes !== null ? `Il en reste ${nombre(p.restantes)}` : "Disponible")}</span>
+                  </span>
+                  <span className="chiffres shrink-0 text-[15px] leading-5 font-semibold text-encre/95">{fcfa(p.prix)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ))}
+
+      <div aria-live="assertive" className="mt-4 empty:hidden">{erreur && <SAlert tone="warning" Icon={AlertTriangle}>{erreur}</SAlert>}</div>
+
+      {prix !== null && (
+        <>
+          <p className="mt-4 text-[14px] leading-5 text-texte-2">À encaisser</p>
+          <p className="chiffres text-[36px] leading-[44px] font-semibold text-encre/95">{fcfa(prix)}</p>
+          <div className="mt-3 grid grid-cols-1 gap-2 @md/page:grid-cols-3">
+            {MOYENS_COMPTOIR.map((m) => {
+              const court = m.id === "solde" && solde < prix;
+              return (
+                <SBtn key={m.id} tone="secondary" variant={m.id === "solde" ? "outlined" : "elevated"} className="min-h-12" disabled={enCours || court} onClick={() => void payer(m.id)}>
+                  {m.id !== "solde" ? m.libelle : <span className="chiffres">{court ? `Solde trop court, ${fcfa(solde)}` : `Son solde, ${fcfa(solde)}`}</span>}
+                </SBtn>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[13px] leading-5 text-texte-2">Choisis comment il paie : le repas est noté payé et servi à ton nom</p>
+        </>
+      )}
+      <SBtn variant="text" tone="secondary" className="mt-3" disabled={enCours} onClick={onLaisser}>Ne pas servir</SBtn>
+      </div>
+      {fenetre}
+    </div>
+  );
+}
+
 /* ── Le ticket ouvert par son adresse ──────────────────────────────────────── */
 
 function TicketTrouve({ ticket, onServir, onLaisser }: { ticket: TicketOuvert; onServir: (cle: string) => void; onLaisser: () => void }) {
@@ -524,6 +707,8 @@ function TicketTrouve({ ticket, onServir, onLaisser }: { ticket: TicketOuvert; o
     );
   }
   const servable = ticket.apercu.genre === "servi";
+  // Réservé sans payer : le geste ouvre la caisse, qui encaisse avant de servir.
+  const aEncaisser = ticket.apercu.genre === "a_payer";
   const habit = HABIT[TON[ticket.apercu.genre]];
   return (
     <div className="absolute inset-0 grid place-items-center overflow-y-auto bg-surface p-6 text-center shadow-[inset_0_0_0_1px_var(--h-filet)]" style={{ borderRadius: 24 }}>
@@ -533,9 +718,10 @@ function TicketTrouve({ ticket, onServir, onLaisser }: { ticket: TicketOuvert; o
         <p className="mt-1 text-[16px] leading-6 text-encre/75">{ticket.plat}</p>
         <Allergies etiquettes={ticket.allergies} enCause={ticket.enCause} />
         <p className="mt-2 font-mono text-[16px] leading-6 tracking-[0.2em] text-encre/80">{ticket.code}</p>
-        {servable ? (
+        {servable || aEncaisser ? (
           <div className="mt-6 flex flex-col items-center gap-2">
-            <SBtn tone="secondary" onClick={() => onServir(ticket.cle)}>Servir ce ticket</SBtn>
+            {aEncaisser && <p className="chiffres text-[16px] leading-6 font-semibold text-encre/95">{ticket.apercu.phrase}</p>}
+            <SBtn tone="secondary" onClick={() => onServir(ticket.cle)}>{aEncaisser ? "Encaisser ce ticket" : "Servir ce ticket"}</SBtn>
             <SBtn variant="text" tone="secondary" onClick={onLaisser}>Ne pas servir</SBtn>
           </div>
         ) : (

@@ -60,7 +60,7 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
   // Un favori au menu d'un jour encore ouvert, autre que celui qu'il regarde : on le lui dit (src/lib/favoris.ts).
   const favori = favoriAuMenu(ouverts, favoris);
   const cartes: CartePlat[] = choisi === null ? [] : plats.map((p) => {
-    const verdict = peutReserver({
+    const demandeDuPlat = {
       maintenant: instant,
       jour: choisi,
       dejaReserve: repas !== null,
@@ -72,7 +72,10 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
       prix: p.prix,
       heureCloture: h,
       plafond: plafond ? { max: plafond.plafond, depense: plafond.depense } : undefined,
-    });
+    };
+    // Payer maintenant avec son solde, ou réserver et payer au comptoir : le second ne regarde pas le solde.
+    const verdict = peutReserver(demandeDuPlat);
+    const auComptoir = peutReserver({ ...demandeDuPlat, sansSolde: true });
     // Clos aujourd'hui : le plat qui reste peut encore se demander à la cantine (src/lib/reservation.ts).
     const demandable = !verdict.ok && verdict.refus === "cloture" && choisi === aujourdhui && peutDemanderHorsDelai({
       maintenant: instant, jour: choisi, heureCloture: h, dejaReserve: repas !== null, demandeEnCours: maDemande?.etat === "en_attente",
@@ -95,6 +98,7 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
       restantes: portionsRestantes(p),
       soldeApres: soldeDe([{ montant: solde }, mouvementRepas(p.prix)]),
       refus: verdict.ok ? null : { genre: verdict.refus, phrase: verdict.phrase },
+      refusAuComptoir: auComptoir.ok ? null : { genre: auComptoir.refus, phrase: auComptoir.phrase },
       demandable,
     };
   });
@@ -106,6 +110,8 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
     etat: etatAffiche(repas, instant),
     annulable: peutAnnuler(repas, instant, h).ok,
     creneau: repas.creneau,
+    paiement: repas.paiement,
+    file: repas.file,
   };
 
   return (

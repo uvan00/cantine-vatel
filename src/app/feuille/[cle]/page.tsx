@@ -8,12 +8,12 @@ import { maintenant } from "@/lib/horloge";
 import { jourLong } from "@/lib/jours";
 import { MARQUE } from "@/lib/marque";
 import { heureH } from "@/lib/reservation";
-import { exiger } from "@/lib/session";
+import { CANTINE, exiger } from "@/lib/session";
 import { BoutonImprimer } from "./bouton-imprimer";
 
 // La feuille du jour, à imprimer : par plat, les convives qui ont réservé, avec une case à cocher. C'est le secours du
 // comptoir si le réseau ou un téléphone lâche. Hors de la coque de la cantine pour sortir propre sur papier ; réservée
-// à la cantine comme le reste (`exiger("admin")`).
+// à la cantine comme le reste (`exiger(...CANTINE)`).
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Feuille du jour" };
@@ -22,7 +22,7 @@ const Cle = z.enum(["aujourdhui", "demain"]);
 const parNom = (a: { nom: string }, b: { nom: string }) => a.nom.localeCompare(b.nom, "fr");
 
 export default async function PageFeuille({ params }: { params: Promise<{ cle: string }> }) {
-  await exiger("admin");
+  await exiger(...CANTINE);
   const cle = Cle.safeParse((await params).cle);
   if (!cle.success) notFound();
   const instant = maintenant();

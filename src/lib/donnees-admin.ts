@@ -10,7 +10,7 @@ import { bilanRestes, type BilanRestes } from "@/lib/restes";
 import { moyenne, peutRetirer } from "@/lib/menu";
 import type { MoyenRecharge } from "@/lib/recharge";
 import type { PeseeDuRapport, RechargeDuRapport, RepasDuRapport } from "@/lib/rapport";
-import { estComplet, etatAffiche, portionsRestantes, scanner, type EtatAffiche, type Scan } from "@/lib/reservation";
+import { estComplet, etatAffiche, portionsRestantes, resteAPayer, scanner, type EtatAffiche, type Scan } from "@/lib/reservation";
 import {
   chiffresDuService, classer, nonRetires, notesParPlat, rechargesConfirmees, repasParJour, repasParPlat, septDerniersJours,
   type ChiffresService, type LignePlat,
@@ -125,7 +125,7 @@ export async function tableauDeBord(maintenant: number): Promise<VueTableau> {
 export async function donneesDuRapport(lundi: string): Promise<{ repas: RepasDuRapport[]; recharges: RechargeDuRapport[]; notes: { platId: string; note: number }[]; pesees: PeseeDuRapport[] }> {
   const semaine = { gte: lundi, lte: ajouterJours(lundi, 6) };
   const [reservations, recharges, notes, pesees] = await Promise.all([
-    prisma.reservation.findMany({ where: { jour: semaine }, select: { jour: true, etat: true, prix: true, menuJour: { select: { platId: true, plat: { select: { nom: true } } } } } }),
+    prisma.reservation.findMany({ where: { jour: semaine }, select: { jour: true, etat: true, prix: true, paiement: true, menuJour: { select: { platId: true, plat: { select: { nom: true } } } } } }),
     prisma.recharge.findMany({
       where: { etat: "confirmee", confirmeeLe: { gte: new Date(`${lundi}T00:00:00Z`), lt: new Date(`${ajouterJours(lundi, 7)}T00:00:00Z`) } },
       select: { montant: true, moyen: true, confirmeeLe: true },
@@ -137,7 +137,7 @@ export async function donneesDuRapport(lundi: string): Promise<{ repas: RepasDuR
     }),
   ]);
   return {
-    repas: reservations.map((r) => ({ jour: r.jour, etat: r.etat, prix: r.prix, platId: r.menuJour.platId, nom: r.menuJour.plat.nom })),
+    repas: reservations.map((r) => ({ jour: r.jour, etat: r.etat, prix: r.prix, paiement: r.paiement, platId: r.menuJour.platId, nom: r.menuJour.plat.nom })),
     recharges: recharges.flatMap((r) => (r.confirmeeLe ? [{ montant: r.montant, moyen: r.moyen, confirmeeLe: r.confirmeeLe }] : [])),
     notes,
     pesees: pesees.map((m) => ({ jour: m.jour, platId: m.platId, nom: m.plat.nom, restes: m.restes, servis: m._count.reservations })),
@@ -261,6 +261,9 @@ export type VueConvive = {
   /** Le code court de son ticket. */
   code: string;
   serviLe: string | null;
+  /** Sa file au comptoir (express, reservation, classique) et comment son repas est payé (src/lib/reservation.ts). */
+  file: string;
+  paiement: string;
   /** Ses allergènes (pas ses régimes), pour la cuisine et le comptoir ; vide s'il n'en a pas. */
   allergies: Etiquette[];
   /** Ce que son plat réservé contient et qu'il ne mange pas : à vérifier avant de servir. Vide quand le plat lui convient. */
@@ -310,13 +313,13 @@ export async function commandesDuJour(cle: CleJour, maintenant: number): Promise
       plat: { select: { nom: true, photo: true, allergenes: true, porc: true, vegetarien: true } },
       reservations: {
         where: { etat: { not: "annulee" } },
-        select: { id: true, etat: true, jour: true, code: true, serviLe: true, convive: { select: { id: true, name: true, image: true, profil: { select: { classe: true, genre: true, allergenes: true, regimes: true } } } } },
+        select: { id: true, etat: true, jour: true, code: true, serviLe: true, file: true, paiement: true, convive: { select: { id: true, name: true, image: true, profil: { select: { classe: true, genre: true, allergenes: true, regimes: true } } } } },
       },
     },
   });
   const plats = menus.map((m): VuePlatCommande => {
     const convives = m.reservations
-      .map((r): VueConvive => ({ id: r.id, nom: r.convive.name, personneId: r.convive.id, photo: r.convive.image ?? null, groupe: groupeDe(r.convive.profil), etat: etatAffiche(r, maintenant), code: r.code, serviLe: r.serviLe?.toISOString() ?? null, allergies: allergiesDe(r.convive.profil?.allergenes), enCause: enCauseDe(r.convive.profil, m.plat) }))
+      .map((r): VueConvive => ({ id: r.id, nom: r.convive.name, personneId: r.convive.id, photo: r.convive.image ?? null, groupe: groupeDe(r.convive.profil), etat: etatAffiche(r, maintenant), code: r.code, serviLe: r.serviLe?.toISOString() ?? null, file: r.file, paiement: r.paiement, allergies: allergiesDe(r.convive.profil?.allergenes), enCause: enCauseDe(r.convive.profil, m.plat) }))
       // Ceux qu'il reste à servir d'abord, chacun par ordre alphabétique.
       .sort((a, b) => Number(a.etat === "servie") - Number(b.etat === "servie") || parNom(a, b));
     const service = chiffresDuService(m.reservations);
@@ -360,6 +363,8 @@ export type VueNonRetire = {
   personneId: string;
   photo: string | null;
   groupe: string;
+  /** Faux quand le repas était à payer au comptoir : rien n'a été encaissé. */
+  paye: boolean;
 };
 
 /** Les repas non retirés des sept derniers jours (réservés, jamais servis), du plus récent au plus ancien. */
@@ -368,14 +373,14 @@ export async function repasNonRetires(maintenant: number): Promise<{ debut: stri
   const lignes = await prisma.reservation.findMany({
     where: { jour: { gte: fenetre.debut, lte: fenetre.fin }, etat: "reservee" },
     select: {
-      id: true, jour: true, prix: true,
+      id: true, jour: true, prix: true, paiement: true,
       menuJour: { select: { plat: { select: { nom: true } } } },
       convive: { select: { id: true, name: true, image: true, profil: { select: { classe: true, genre: true } } } },
     },
   });
   const repas = lignes.map((r): VueNonRetire => ({
     id: r.id, jour: r.jour, plat: r.menuJour.plat.nom, prix: r.prix, nom: r.convive.name, personneId: r.convive.id,
-    photo: r.convive.image ?? null, groupe: groupeDe(r.convive.profil),
+    photo: r.convive.image ?? null, groupe: groupeDe(r.convive.profil), paye: !resteAPayer(r),
   }));
   return { ...fenetre, repas: repas.sort((a, b) => b.jour.localeCompare(a.jour) || parNom(a, b)) };
 }
@@ -583,6 +588,8 @@ export async function demandesEnAttente(jour: string): Promise<VueDemande[]> {
 
 export type TicketLocal = {
   jeton: string; code: string; etat: string; jour: string; serviLe: string | null;
+  /** Comment le repas est payé, et son prix : sans réseau, un ticket « a_payer » ne se sert pas. */
+  paiement: string; prix: number;
   conviveId: string; convive: string; photo: string | null; plat: string; creneau: string | null;
   /** Le jeton de la carte de cantine de l'élève, pour servir sa carte sans réseau. */
   carte: string | null;
@@ -596,10 +603,11 @@ export type TicketLocal = {
 export async function ticketsDuJour(jour: string): Promise<TicketLocal[]> {
   const rs = await prisma.reservation.findMany({
     where: { jour },
-    select: { jeton: true, code: true, etat: true, jour: true, serviLe: true, creneau: true, convive: { select: { id: true, name: true, image: true, profil: { select: { carte: true, allergenes: true, regimes: true } } } }, menuJour: { select: { plat: { select: { nom: true, allergenes: true, porc: true, vegetarien: true } } } } },
+    select: { jeton: true, code: true, etat: true, jour: true, serviLe: true, creneau: true, paiement: true, prix: true, convive: { select: { id: true, name: true, image: true, profil: { select: { carte: true, allergenes: true, regimes: true } } } }, menuJour: { select: { plat: { select: { nom: true, allergenes: true, porc: true, vegetarien: true } } } } },
   });
   return rs.map((r) => ({
     jeton: r.jeton, code: r.code, etat: r.etat, jour: r.jour, serviLe: r.serviLe?.toISOString() ?? null,
+    paiement: r.paiement, prix: r.prix,
     conviveId: r.convive.id, convive: r.convive.name, photo: r.convive.image ?? null, plat: r.menuJour.plat.nom, creneau: r.creneau,
     carte: r.convive.profil?.carte ?? null,
     allergies: allergiesDe(r.convive.profil?.allergenes),

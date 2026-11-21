@@ -17,5 +17,5 @@ export async function GET(requete: Request, { params }: { params: Promise<{ jeto
   const jeton = Jeton.safeParse((await params).jeton);
   const ticket = jeton.success ? await etatDuTicket(jeton.data) : null;
   if (!ticket || ticket.conviveId !== moi.id) return erreur(requete, "Ticket inconnu", 404);
-  return reponse(requete, { etat: ticket.etat, serviA: ticket.serviLe ? heureH(ticket.serviLe) : null });
+  return reponse(requete, { etat: ticket.etat, serviA: ticket.serviLe ? heureH(ticket.serviLe) : null, paiement: ticket.paiement });
 }

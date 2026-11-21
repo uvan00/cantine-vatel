@@ -10,7 +10,7 @@ import { MARQUE } from "@/lib/marque";
 import { refus, reponse } from "@/lib/mobile";
 import { etiquettesDuPlat, etiquettesEnCause, incompatibilites } from "@/lib/profil-alimentaire";
 import { heuresDePassage } from "@/lib/reglages";
-import { LIBELLE_ETAT, etatAffiche, peutAnnuler, peutDemanderHorsDelai, peutReserver, portionsRestantes } from "@/lib/reservation";
+import { LIBELLE_ETAT, etatAffiche, nomDeLaFile, paiementLisible, peutAnnuler, peutDemanderHorsDelai, peutReserver, portionsRestantes } from "@/lib/reservation";
 import { autorise } from "@/lib/session";
 import { proposerSemaine } from "@/lib/semaine";
 import { SEUIL_ALERTE_DEFAUT, mouvementRepas, soldeBas, soldeDe } from "@/lib/solde";
@@ -51,7 +51,7 @@ export async function GET(requete: Request) {
   const favori = favoriAuMenu(ouverts, favoris);
 
   const cartes = choisi === null ? [] : plats.map((p) => {
-    const verdict = peutReserver({
+    const demandeDuPlat = {
       maintenant: instant,
       jour: choisi,
       dejaReserve: repas !== null,
@@ -63,7 +63,11 @@ export async function GET(requete: Request) {
       prix: p.prix,
       heureCloture: h,
       plafond: plafond ? { max: plafond.plafond, depense: plafond.depense } : undefined,
-    });
+    };
+    // `refus` : pourquoi il ne se paie pas maintenant avec le solde ; `refusAuComptoir` : pourquoi il ne se réserve pas
+    // non plus pour payer au comptoir (la même règle sans le solde). Un plat se réserve dès que l'un des deux est nul.
+    const verdict = peutReserver(demandeDuPlat);
+    const auComptoir = peutReserver({ ...demandeDuPlat, sansSolde: true });
     const demandable = !verdict.ok && verdict.refus === "cloture" && choisi === aujourdhui && peutDemanderHorsDelai({
       maintenant: instant, jour: choisi, heureCloture: h, dejaReserve: repas !== null, demandeEnCours: maDemande?.etat === "en_attente",
       epuise: p.epuise, portions: p.portions, reservees: p.reservees, incompatibilites: incompatibilites(ceQuIlNeMangePas, p), solde, prix: p.prix,
@@ -89,6 +93,7 @@ export async function GET(requete: Request) {
       restantes: portionsRestantes(p),
       soldeApres: soldeDe([{ montant: solde }, mouvementRepas(p.prix)]),
       refus: verdict.ok ? null : { genre: verdict.refus, phrase: verdict.phrase },
+      refusAuComptoir: auComptoir.ok ? null : { genre: auComptoir.refus, phrase: auComptoir.phrase },
       demandable,
     };
   });
@@ -119,6 +124,11 @@ export async function GET(requete: Request) {
       libelleEtat: LIBELLE_ETAT[etatRepas],
       annulable: peutAnnuler(repas, instant, h).ok,
       creneau: repas.creneau ? creneauLisible(repas.creneau) : null,
+      // Sa file au comptoir et son paiement, comme dans /tickets : l'encart « Ton repas » dit s'il reste à payer.
+      file: repas.file,
+      nomFile: nomDeLaFile(repas.file),
+      paiement: repas.paiement,
+      libellePaiement: paiementLisible(repas.paiement, etatRepas),
     },
     demande: maDemande,
   });

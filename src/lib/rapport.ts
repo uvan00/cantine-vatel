@@ -5,13 +5,13 @@
 import { ajouterJours, estUnJour, jourIso, joursAPartirDe, lundiDe, nomDuJour } from "./jours.ts";
 import { moyenne } from "./menu.ts";
 import { LIBELLE_MOYEN, type MoyenRecharge } from "./recharge.ts";
-import { etatAffiche } from "./reservation.ts";
+import { etatAffiche, resteAPayer } from "./reservation.ts";
 import { bilanRestes, type BilanRestes, type LignePesee } from "./restes.ts";
 import { soldeDe } from "./solde.ts";
 import { classer, compte, nonRetires, notesParPlat, periode, pourcent, repasParPlat } from "./statistiques.ts";
 
 /** Un repas de la semaine, tel que la base le garde : son jour, son état, le prix payé, son plat. */
-export type RepasDuRapport = { jour: string; etat: string; prix: number; platId: string; nom: string };
+export type RepasDuRapport = { jour: string; etat: string; prix: number; platId: string; nom: string; /** solde, a_payer, especes ou mobile_money ; absent : payé sur le solde. */ paiement?: string | null };
 export type RechargeDuRapport = { montant: number; moyen: string; confirmeeLe: Date | string };
 /** Une pesée des restes d'un plat du jour, avec ses repas servis. */
 export type PeseeDuRapport = LignePesee & { jour: string };
@@ -75,7 +75,8 @@ export function rapportDeLaSemaine(
       servis: comptes.filter((r) => r.etat === "servie").length,
       nonRetires: comptes.filter((r) => etatAffiche(r, maintenant) === "non_retiree").length,
       annules: duJour.length - comptes.length,
-      paye: soldeDe(comptes.map((r) => ({ montant: r.prix }))),
+      // Payé sur le solde ou au comptoir. Un repas réservé sans payer ne compte pas tant que la caisse ne l'a pas encaissé.
+      paye: soldeDe(comptes.filter((r) => !resteAPayer(r)).map((r) => ({ montant: r.prix }))),
       restes: grammes(pesees.filter((p) => p.jour === jour).map((p) => p.restes)),
     };
   });

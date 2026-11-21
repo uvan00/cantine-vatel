@@ -30,10 +30,10 @@ export async function GET(req: Request) {
     const d = await donneesCompta(p);
     if (vue === "encaissements") {
       lignes = [["Confirmée le", "Moyen", "Montant (F CFA)"],
-        ...d.recharges.map((r) => [r.confirmeeLe.slice(0, 10), MOYENS_RECHARGE.find((m) => m.id === r.moyen)?.libelle ?? r.moyen, r.montant])];
+        ...d.entrees.map((r) => [r.confirmeeLe.slice(0, 10), MOYENS_RECHARGE.find((m) => m.id === r.moyen)?.libelle ?? r.moyen, r.montant])];
     } else if (vue === "ventes") {
       lignes = [["Jour", "Plat", "État", "Prix (F CFA)"],
-        ...d.repas.map((r) => [r.jour, r.plat, ETATS[r.etat] ?? (r.jour < aujourdhui ? "Non retiré" : "Payé, pas encore servi"), r.prix])];
+        ...d.repas.map((r) => [r.jour, r.plat, ETATS[r.etat] ?? (r.paiement === "a_payer" ? (r.jour < aujourdhui ? "Non retiré, jamais payé" : "Réservé, à payer au comptoir") : r.jour < aujourdhui ? "Non retiré" : "Payé, pas encore servi"), r.prix])];
     } else if (vue === "depenses") {
       lignes = [["Jour", "Catégorie", "Ce qui a été payé", "Fournisseur", "Payée en", "Montant (F CFA)", "Notée par"],
         ...d.depenses.map((x) => [x.jour, libelleCategorie(x.categorie), x.libelle, x.fournisseur, libelleMoyenDepense(x.moyen), x.montant, x.noteePar])];

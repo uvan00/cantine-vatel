@@ -68,7 +68,7 @@ export default async function PageRapport({ searchParams }: { searchParams: Prom
       <SChiffresBande items={[
         { titre: "Repas réservés", valeur: nombre(t.reserves), detail: `${pluriel(t.servis, "servi")}, ${pluriel(t.annules, "annulé")}` },
         { titre: "Non retirés", valeur: nombre(t.nonRetires), detail: r.partNonRetires === null ? "Aucun jour fini" : `${r.partNonRetires} % des jours finis` },
-        { titre: "Payé en repas", valeur: fcfa(t.paye), detail: "Sur les soldes, annulations remboursées" },
+        { titre: "Payé en repas", valeur: fcfa(t.paye), detail: "Sur les soldes ou au comptoir, sans les repas encore à payer" },
         { titre: "Recharges confirmées", valeur: fcfa(r.recharges.montant), detail: pluriel(r.recharges.nombre, "recharge") },
       ]} />
       </div>

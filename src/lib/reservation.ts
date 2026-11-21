@@ -19,6 +19,85 @@ export const LIBELLE_ETAT: Record<EtatAffiche, string> = {
 export const etatAffiche = (r: { etat: string; jour: string }, maintenant: number): EtatAffiche =>
   r.etat === "reservee" && r.jour < jourIso(maintenant) ? "non_retiree" : (r.etat as EtatReservation);
 
+/* ── Le paiement d'un repas ─────────────────────────────────────────────────── */
+
+/**
+ * Comment un repas est payé (demande du propriétaire du 21/11/2026). `solde` : sur le solde du convive, à la
+ * réservation ou au comptoir. `a_payer` : réservé sans payer, rien n'est encaissé tant que la caisse ne l'a pas dit.
+ * `especes`, `mobile_money` : payé à la caisse, qui choisit le moyen ; le solde n'est pas touché.
+ */
+export const PAIEMENTS = ["solde", "a_payer", "especes", "mobile_money"] as const;
+export type Paiement = (typeof PAIEMENTS)[number];
+
+/** Un paiement lu en base ; inconnu ou vide (les repas d'avant), c'est le solde. */
+export const lirePaiement = (v: string | null | undefined): Paiement => ((PAIEMENTS as readonly string[]).includes(v ?? "") ? (v as Paiement) : "solde");
+
+/** Les moyens que la caisse choisit au comptoir, dans l'ordre de ses boutons. */
+export const MOYENS_COMPTOIR = [
+  { id: "especes", libelle: "Espèces" },
+  { id: "mobile_money", libelle: "Mobile Money" },
+  { id: "solde", libelle: "Son solde" },
+] as const;
+export type MoyenComptoir = (typeof MOYENS_COMPTOIR)[number]["id"];
+export const estMoyenComptoir = (v: unknown): v is MoyenComptoir => MOYENS_COMPTOIR.some((m) => m.id === v);
+
+/** Vrai tant que rien n'est encaissé pour ce repas. */
+export const resteAPayer = (r: { paiement?: string | null }) => r.paiement === "a_payer";
+
+/** Sous le prix, sur le ticket : comment ce repas est payé, dit au convive. */
+export function paiementLisible(paiement: string | null | undefined, etat: string): string {
+  const p = lirePaiement(paiement);
+  if (p === "a_payer") return etat === "annulee" ? "Rien n'était payé" : etat === "servie" ? "Payé au comptoir" : etat === "non_retiree" ? "Jamais payé" : "À payer au comptoir";
+  if (p === "especes") return "Payé en espèces au comptoir";
+  if (p === "mobile_money") return "Payé par Mobile Money au comptoir";
+  return etat === "annulee" ? "Rendu sur ton solde" : "Payé avec ton solde";
+}
+
+/** La caisse encaisse ce repas par ce moyen : le solde doit suffire quand c'est lui qui paie. */
+export function peutEncaisser(moyen: MoyenComptoir, solde: number, prix: number): VerdictAnnulation {
+  if (moyen === "solde" && solde < prix) return { ok: false, phrase: `Il lui manque ${fcfa(manque(solde, prix))} sur son solde` };
+  return { ok: true };
+}
+
+/* ── Les trois files du comptoir ────────────────────────────────────────────── */
+
+/**
+ * Les trois files (demande du propriétaire du 21/11/2026). La file d'un repas est fixée quand il est créé et ne change
+ * plus : elle dit par où il est passé, même une fois payé.
+ */
+export const FILES = [
+  { id: "express", nom: "File express", pour: "Réservé et déjà payé" },
+  { id: "reservation", nom: "File réservation", pour: "Réservé, à payer au comptoir" },
+  { id: "classique", nom: "File classique", pour: "Sans réservation" },
+] as const;
+export type FileComptoir = (typeof FILES)[number]["id"];
+
+/** Une file lue en base ; inconnue ou vide (les repas d'avant, tous payés à la réservation), c'est l'express. */
+export const lireFile = (v: string | null | undefined): FileComptoir => (FILES.some((f) => f.id === v) ? (v as FileComptoir) : "express");
+export const nomDeLaFile = (v: string | null | undefined) => FILES.find((f) => f.id === lireFile(v))?.nom ?? "File express";
+
+/** La file d'un repas qu'on crée : pris au comptoir sans réservation, réservé sans payer, ou réservé et payé. */
+export const fileDuRepas = (d: { surPlace: boolean; paiement: Paiement }): FileComptoir =>
+  d.surPlace ? "classique" : d.paiement === "a_payer" ? "reservation" : "express";
+
+/** Les jours de service qui font l'estimation : les plus récents, au plus cinq. */
+export const SERVICES_POUR_L_ESTIMATION = 5;
+
+/**
+ * Combien de repas sans réservation prévoir en plus des réservations : la moyenne, arrondie au repas, de ceux des
+ * derniers jours de service (du plus récent au plus ancien). Null tant qu'aucun service n'a eu lieu : rien n'est inventé.
+ */
+export function estimationSansReservation(parJourDeService: number[]): number | null {
+  const jours = parJourDeService.slice(0, SERVICES_POUR_L_ESTIMATION);
+  return jours.length === 0 ? null : Math.round(jours.reduce((s, n) => s + n, 0) / jours.length);
+}
+
+/** L'estimation en mots, pour la cuisine : « environ 6 à prévoir, d'après les 5 derniers services ». */
+export function estimationLisible(estimation: number | null, services: number): string {
+  if (estimation === null) return "pas encore d'estimation, elle viendra après les premiers services";
+  return `environ ${estimation.toLocaleString("fr-FR")} à prévoir, d'après ${services > 1 ? `les ${services} derniers services` : "le dernier service"}`;
+}
+
 /* ── Réserver ──────────────────────────────────────────────────────────────── */
 
 export type DemandeReservation = {
@@ -49,6 +128,11 @@ export type DemandeReservation = {
   heureCloture?: number;
   /** Le plafond de la semaine posé par le parent ou le convive, et ce qui est déjà réservé cette semaine. */
   plafond?: { max: number | null; depense: number };
+  /**
+   * Vrai quand le repas ne se paie pas sur le solde : réservé pour payer au comptoir, ou payé à la caisse en espèces ou
+   * par Mobile Money. Le solde n'est alors pas regardé ; toutes les autres règles tiennent, plafond compris.
+   */
+  sansSolde?: boolean;
 };
 
 export type Refus = "cloture" | "deja" | "complet" | "profil" | "plafond" | "solde";
@@ -76,7 +160,7 @@ export function peutReserver(d: DemandeReservation): Verdict {
   if (d.plafond && depassePlafond(d.plafond.max, d.plafond.depense, d.prix)) {
     return non("plafond", `Ce repas dépasserait ${cantine ? "son" : "ton"} plafond de la semaine, ${fcfa(d.plafond.max ?? 0)}`);
   }
-  if (d.solde < d.prix) return non("solde", `${cantine ? "Il lui manque" : "Il te manque"} ${fcfa(manque(d.solde, d.prix))} pour ce plat`);
+  if (d.sansSolde !== true && d.solde < d.prix) return non("solde", `${cantine ? "Il lui manque" : "Il te manque"} ${fcfa(manque(d.solde, d.prix))} pour ce plat`);
   return { ok: true };
 }
 
@@ -133,19 +217,25 @@ export function peutDemanderHorsDelai(d: DemandeHorsDelai): VerdictAnnulation {
 
 /* ── Scanner le ticket au comptoir ─────────────────────────────────────────── */
 
-export type GenreScan = "servi" | "deja_servi" | "autre_jour" | "annule" | "inconnu";
+/**
+ * `a_payer` : le ticket est bon mais rien n'est encaissé, la caisse choisit le moyen avant de servir.
+ * `sans_repas` : un badge sans repas réservé aujourd'hui, la caisse propose les plats du jour.
+ */
+export type GenreScan = "servi" | "deja_servi" | "autre_jour" | "annule" | "inconnu" | "a_payer" | "sans_repas";
 export type Scan = { genre: GenreScan; phrase: string };
 
 /** « 12 h 14 » */
 export const heureH = (instant: string | Date) => heure(instant).replace(":", " h ");
 
 /** Ce que répond le comptoir pour ce ticket. Seul « servi » autorise à marquer le repas servi. */
-export function scanner(r: { etat: string; jour: string; serviLe: string | Date | null } | null, maintenant: number): Scan {
+export function scanner(r: { etat: string; jour: string; serviLe: string | Date | null; paiement?: string | null; prix?: number } | null, maintenant: number): Scan {
   if (!r) return { genre: "inconnu", phrase: "Ticket inconnu" };
   if (r.etat === "annulee") return { genre: "annule", phrase: "Ticket annulé" };
   if (r.etat === "servie") return { genre: "deja_servi", phrase: r.serviLe ? `Déjà servi à ${heureH(r.serviLe)}` : "Déjà servi" };
   const aujourdhui = jourIso(maintenant);
   if (r.jour > aujourdhui) return { genre: "autre_jour", phrase: `Ce ticket est pour ${jourProche(r.jour, maintenant)}` };
   if (r.jour < aujourdhui) return { genre: "autre_jour", phrase: `Ce ticket était pour ${jourProche(r.jour, maintenant)}` };
+  // Réservé sans payer : on encaisse d'abord.
+  if (resteAPayer(r)) return { genre: "a_payer", phrase: r.prix === undefined ? "À encaisser" : `À encaisser : ${fcfa(r.prix)}` };
   return { genre: "servi", phrase: "Servi" };
 }

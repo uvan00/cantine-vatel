@@ -8,8 +8,9 @@ import { fcfa } from "@/lib/format";
 import { jourLong } from "@/lib/jours";
 import { periode } from "@/lib/statistiques";
 
-// Les repas réservés et jamais servis des sept derniers jours, convive par convive. Ils ne sont pas remboursés : c'est
-// ce qui rend les chiffres de la cuisine fiables (cahier des charges, 4.3). La page se lit, elle n'écrit rien.
+// Les repas réservés et jamais servis des sept derniers jours, convive par convive. Ceux qui étaient payés ne sont pas
+// remboursés : c'est ce qui rend les chiffres de la cuisine fiables (cahier des charges, 4.3). Ceux qui étaient à payer
+// au comptoir n'ont rien rapporté (4.12) : la ligne le dit. La page se lit, elle n'écrit rien.
 
 export function NonRetiresClient({ debut, fin, repas }: { debut: string; fin: string; repas: VueNonRetire[] }) {
   const jours = [...new Set(repas.map((r) => r.jour))];
@@ -20,7 +21,8 @@ export function NonRetiresClient({ debut, fin, repas }: { debut: string; fin: st
         actions={<Link href="/admin" className="hb hb--filet hb--petit"><ArrowLeft className="size-4" strokeWidth={1.8} />Tableau de bord</Link>} />
 
       <p className="max-w-[640px] text-[14px] leading-5 text-texte-2">
-        Réservés, payés, jamais venus chercher : ils ne sont pas remboursés, c&apos;est ce qui rend les chiffres de la cuisine fiables
+        Réservés, jamais venus chercher. Ceux qui étaient payés ne sont pas remboursés : c&apos;est ce qui rend les chiffres de la
+        cuisine fiables. Un repas à payer au comptoir n&apos;a rien rapporté
       </p>
 
       {repas.length === 0 ? (
@@ -36,7 +38,7 @@ export function NonRetiresClient({ debut, fin, repas }: { debut: string; fin: st
                 <Avatar id={r.personneId} nom={r.nom} photo={r.photo} taille={32} />
                 <div className="min-w-0">
                   <p className="truncate text-[15px] leading-5 font-semibold text-encre/95">{r.nom}</p>
-                  <p className="chiffres truncate text-[13px] leading-5 text-texte-2">{r.groupe}, {r.plat}, {fcfa(r.prix)}</p>
+                  <p className="chiffres truncate text-[13px] leading-5 text-texte-2">{r.groupe}, {r.plat}, {fcfa(r.prix)}{r.paye ? "" : ", jamais payé"}</p>
                 </div>
               </li>
             ))}

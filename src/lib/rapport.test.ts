@@ -61,6 +61,24 @@ test("les plats du plus réservé au moins réservé, avec leurs servis et leur 
   assert.equal(r.restes.parRepas, 600);
 });
 
+test("un repas réservé sans payer n'entre dans « payé » qu'une fois encaissé au comptoir", () => {
+  const r = rapportDeLaSemaine(LUNDI, {
+    repas: [
+      { ...repas("2026-11-16", "servie", 1000), paiement: "solde" },
+      { ...repas("2026-11-16", "servie", 1500), paiement: "especes" },
+      { ...repas("2026-11-16", "servie", 2000), paiement: "mobile_money" },
+      { ...repas("2026-11-17", "reservee", 1500), paiement: "a_payer" },
+      { ...repas("2026-11-19", "reservee", 1000), paiement: "a_payer" },
+    ],
+    recharges: [], notes: [], pesees: [],
+  }, JEUDI_MIDI);
+  // Le 16 : payé sur le solde, en espèces et par Mobile Money. Le 17 : jamais venu, jamais payé. Le 19 : pas encore payé.
+  assert.equal(r.jours[0].paye, 4500);
+  assert.deepEqual([r.jours[1].reserves, r.jours[1].nonRetires, r.jours[1].paye], [1, 1, 0]);
+  assert.deepEqual([r.jours[3].reserves, r.jours[3].paye], [1, 0]);
+  assert.equal(r.total.paye, 4500);
+});
+
 test("une semaine sans rien : des zéros, et rien d'inventé", () => {
   const r = rapportDeLaSemaine(LUNDI, { repas: [], recharges: [], notes: [], pesees: [] }, JEUDI_MIDI);
   assert.deepEqual(r.total, { reserves: 0, servis: 0, nonRetires: 0, annules: 0, paye: 0, restes: null });

@@ -67,7 +67,7 @@ export const plafondValable = (v: number | null) => v === null || (Number.isInte
  * Qui règle le plafond d'un convive : son parent quand il en a un relié (l'élève ne lève pas la limite posée par sa
  * famille), lui-même sinon (un employé, un élève sans parent dans l'application).
  */
-export const peutReglerPlafond = (acteur: "convive" | "parent" | "admin", aUnParent: boolean) => acteur === "parent" || (acteur === "convive" && !aUnParent);
+export const peutReglerPlafond = (acteur: string, aUnParent: boolean) => acteur === "parent" || (acteur === "convive" && !aUnParent);
 
 /** Ce repas, ajouté aux repas déjà réservés cette semaine, passerait-il au-dessus du plafond ? */
 export const depassePlafond = (plafond: number | null, depenseSemaine: number, prix: number) => plafond !== null && depenseSemaine + prix > plafond;

@@ -22,15 +22,16 @@ function rafraichir() {
 
 /**
  * Réserve ce plat du jour pour le convive connecté, à l'heure de passage choisie quand la cantine a ouvert des créneaux.
- * Rend le jeton de son ticket, ou le refus en une phrase.
+ * `auComptoir` : il réserve sans payer, la caisse encaissera au scan (file réservation) ; sinon le prix part de son solde
+ * tout de suite (file express). Rend le jeton de son ticket, ou le refus en une phrase.
  */
-export async function reserverPlat(menuJourId: string, creneau: string | null = null): Promise<{ ok: true; jeton: string } | { ok: false; erreur: string }> {
+export async function reserverPlat(menuJourId: string, creneau: string | null = null, auComptoir = false): Promise<{ ok: true; jeton: string } | { ok: false; erreur: string }> {
   const moi = await autorise("convive");
   if (!moi) return { ok: false, erreur: SESSION_FINIE };
   const id = Id.safeParse(menuJourId);
   if (!id.success) return { ok: false, erreur: "Ce plat n'est plus au menu" };
   if (creneau !== null && !heureValable(creneau)) return { ok: false, erreur: "Cette heure de passage n'existe pas" };
-  const r = await reserver(moi.id, id.data, Date.now(), false, creneau);
+  const r = await reserver(moi.id, id.data, Date.now(), false, creneau, false, { paiement: auComptoir === true ? "a_payer" : "solde" });
   rafraichir();
   return r;
 }

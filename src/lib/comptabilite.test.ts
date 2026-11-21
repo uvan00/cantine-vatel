@@ -98,3 +98,30 @@ test("les dates choisies à la main : dans le bon ordre, un an au plus, et la m�
   assert.equal(periodeLisible(p), "du 10 au 14 novembre");
   assert.equal(periodeLisible(periodeEntre("2026-11-21", "2026-11-21")), "samedi 21 novembre");
 });
+
+test("un repas réservé sans payer n'est gagné que servi ; jamais retiré, rien n'a été encaissé", () => {
+  const p = periodeDe("semaine", "2026-11-21");
+  const repas: RepasCompta[] = [
+    { jour: "2026-11-19", prix: 1500, etat: "reservee", plat: "Garba", paiement: "solde" },      // payé, non retiré : gagné
+    { jour: "2026-11-19", prix: 2000, etat: "reservee", plat: "Kedjenou", paiement: "a_payer" }, // jamais payé : perdu
+    { jour: "2026-11-21", prix: 1000, etat: "servie", plat: "Alloco", paiement: "especes" },     // payé à la caisse : gagné
+    { jour: "2026-11-22", prix: 1500, etat: "reservee", plat: "Riz", paiement: "a_payer" },      // à encaisser demain
+    { jour: "2026-11-22", prix: 1500, etat: "reservee", plat: "Riz", paiement: "solde" },        // payé d'avance
+  ];
+  const v = ventes(repas, p, "2026-11-21");
+  assert.equal(v.gagne, 2500);
+  assert.deepEqual(v.nonRetires, { nombre: 1, montant: 1500 });
+  assert.deepEqual(v.jamaisPayes, { nombre: 1, montant: 2000 });
+  assert.deepEqual(v.aEncaisser, { nombre: 1, montant: 1500 });
+  assert.deepEqual(v.aVenir, { nombre: 1, montant: 1500 });
+});
+
+test("l'argent entré compte aussi les repas payés à la caisse, à part des recharges", () => {
+  const e = encaissements([
+    { montant: 5000, moyen: "especes", confirmeeLe: "2026-11-21T08:00:00.000Z" },
+    { montant: 1500, moyen: "repas_especes", confirmeeLe: "2026-11-21T12:10:00.000Z" },
+    { montant: 2000, moyen: "repas_mobile_money", confirmeeLe: "2026-11-21T12:20:00.000Z" },
+  ], periodeDe("jour", "2026-11-21"));
+  assert.equal(e.total, 8500);
+  assert.deepEqual(e.parMoyen.map((m) => [m.id, m.montant]), [["especes", 5000], ["repas_especes", 1500], ["repas_mobile_money", 2000]]);
+});

@@ -4,7 +4,10 @@ import type { DepenseCompta, Periode, RechargeCompta, RepasCompta } from "@/lib/
 
 // Les lectures de la comptabilité (src/lib/comptabilite.ts fait les calculs). Rien n'écrit ici.
 
-/** Ce qui sert à compter une période : les recharges confirmées, les repas réservés, les dépenses. */
+/**
+ * Ce qui sert à compter une période : les recharges confirmées, les repas réservés, les dépenses. `entrees` : tout
+ * l'argent entré, les recharges et les repas payés à la caisse (espèces, Mobile Money), datés du service.
+ */
 export async function donneesCompta(p: Periode) {
   const [recharges, reservations, depenses] = await Promise.all([
     prisma.recharge.findMany({
@@ -13,13 +16,20 @@ export async function donneesCompta(p: Periode) {
     }),
     prisma.reservation.findMany({
       where: { jour: { gte: p.debut, lte: p.fin } },
-      select: { jour: true, prix: true, etat: true, menuJour: { select: { plat: { select: { nom: true } } } } },
+      select: { jour: true, prix: true, etat: true, paiement: true, serviLe: true, menuJour: { select: { plat: { select: { nom: true } } } } },
     }),
     prisma.depense.findMany({ where: { jour: { gte: p.debut, lte: p.fin } }, orderBy: [{ jour: "desc" }, { creeLe: "desc" }] }),
   ]);
+  const confirmees = recharges.flatMap((r): RechargeCompta[] => (r.confirmeeLe ? [{ montant: r.montant, moyen: r.moyen, confirmeeLe: r.confirmeeLe.toISOString() }] : []));
+  // Un repas payé à la caisse est servi dans le même geste : l'argent entre à l'heure du service.
+  const aLaCaisse = reservations.flatMap((r): RechargeCompta[] =>
+    r.etat === "servie" && (r.paiement === "especes" || r.paiement === "mobile_money")
+      ? [{ montant: r.prix, moyen: `repas_${r.paiement}`, confirmeeLe: (r.serviLe ?? new Date(`${r.jour}T12:00:00.000Z`)).toISOString() }]
+      : []);
   return {
-    recharges: recharges.flatMap((r): RechargeCompta[] => (r.confirmeeLe ? [{ montant: r.montant, moyen: r.moyen, confirmeeLe: r.confirmeeLe.toISOString() }] : [])),
-    repas: reservations.map((r): RepasCompta => ({ jour: r.jour, prix: r.prix, etat: r.etat, plat: r.menuJour.plat.nom })),
+    recharges: confirmees,
+    entrees: [...confirmees, ...aLaCaisse],
+    repas: reservations.map((r): RepasCompta => ({ jour: r.jour, prix: r.prix, etat: r.etat, plat: r.menuJour.plat.nom, paiement: r.paiement })),
     depenses: depenses.map((d) => ({ ...d, creeLe: d.creeLe.toISOString() })) satisfies DepenseCompta[],
   };
 }

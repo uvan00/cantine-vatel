@@ -106,12 +106,15 @@ export type Repas = {
   mot: string;
   /** L'heure de passage choisie (« 12:15 ») ; null sans créneaux. */
   creneau: string | null;
+  /** Sa file au comptoir (express, reservation, classique) et comment il est payé (src/lib/reservation.ts). */
+  file: string;
+  paiement: string;
 };
 
 const AVEC = { menuJour: { select: { plat: { select: { nom: true } } } }, note: { select: { note: true, mot: true } } } as const;
 
 type Ligne = {
-  id: string; jeton: string; code: string; jour: string; prix: number; etat: string; creeLe: Date; serviLe: Date | null; creneau: string | null;
+  id: string; jeton: string; code: string; jour: string; prix: number; etat: string; creeLe: Date; serviLe: Date | null; creneau: string | null; file: string; paiement: string;
   menuJour: { plat: { nom: string } };
   note: { note: number; mot: string } | null;
 };
@@ -129,6 +132,8 @@ const enRepas = (r: Ligne): Repas => ({
   note: r.note?.note ?? null,
   mot: r.note?.mot ?? "",
   creneau: r.creneau,
+  file: r.file,
+  paiement: r.paiement,
 });
 
 /** Le repas de ce convive pour ce jour (un seul par jour, annulés exclus), ou null. */
@@ -160,10 +165,10 @@ export async function ticketDe(jeton: string): Promise<(Repas & { conviveId: str
   return r ? { ...enRepas(r), conviveId: r.conviveId, convive: r.convive.name } : null;
 }
 
-/** Où en est un ticket, pour la relecture en direct : son propriétaire, son état, l'heure où il a été servi. */
-export async function etatDuTicket(jeton: string): Promise<{ conviveId: string; etat: string; serviLe: string | null } | null> {
-  const r = await prisma.reservation.findUnique({ where: { jeton }, select: { conviveId: true, etat: true, serviLe: true } });
-  return r ? { conviveId: r.conviveId, etat: r.etat, serviLe: r.serviLe?.toISOString() ?? null } : null;
+/** Où en est un ticket, pour la relecture en direct : son propriétaire, son état, l'heure où il a été servi, son paiement. */
+export async function etatDuTicket(jeton: string): Promise<{ conviveId: string; etat: string; serviLe: string | null; paiement: string } | null> {
+  const r = await prisma.reservation.findUnique({ where: { jeton }, select: { conviveId: true, etat: true, serviLe: true, paiement: true } });
+  return r ? { conviveId: r.conviveId, etat: r.etat, serviLe: r.serviLe?.toISOString() ?? null, paiement: r.paiement } : null;
 }
 
 export type LigneJournal = { id: string; genre: string; montant: number; libelle: string; quand: string };

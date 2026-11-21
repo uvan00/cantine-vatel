@@ -1,5 +1,6 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
+import { hashPassword } from "better-auth/crypto";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { avatarPermis } from "@/lib/avatars";
@@ -12,13 +13,15 @@ import { refusDepense, type DepenseSaisie } from "@/lib/comptabilite";
 import { CODE_PAS_VALABLE, codeUtilisable, estUnCodeFamille, expirationCode, identifiantCode } from "@/lib/code-famille";
 import { verdictCreneau } from "@/lib/creneaux";
 import { erreurReglages, heuresDePassage, type Reglages } from "@/lib/reglages";
+import { refusMotDePasse, refusResponsable } from "@/lib/equipe";
+import { lireRole } from "@/lib/roles";
 import { de, fcfa, nombre } from "@/lib/format";
 import { ajouterJours, estUnJour, jourIso, jourLong, lundiDe } from "@/lib/jours";
 import { IDS_ALLERGENES, IDS_REGIMES, ecrireListe, etiquettesAllergenes, lireListe, type Etiquette } from "@/lib/listes";
 import { DESCRIPTION_MAX, NOM_MAX, PORTIONS_MAX, PRIX_MAX, PRIX_MIN, noteValable, peutRetirer, portionsValables, prixValable } from "@/lib/menu";
 import { etiquettesEnCause, incompatibilites } from "@/lib/profil-alimentaire";
 import { ATTENTES_MAX, RECHARGE_MAX, RECHARGE_MIN, montantValable, moyenManuel, peutAnnulerRecharge, peutConfirmer, peutDemander, type MoyenRecharge } from "@/lib/recharge";
-import { peutAnnuler, peutDemanderHorsDelai, peutReserver, scanner, type Scan } from "@/lib/reservation";
+import { fileDuRepas, peutAnnuler, peutDemanderHorsDelai, peutEncaisser, peutReserver, resteAPayer, scanner, type MoyenComptoir, type Paiement, type Scan } from "@/lib/reservation";
 import { RESTES_MAX, peutPeser, restesValables } from "@/lib/restes";
 import type { Moi, Role } from "@/lib/session";
 import { PLAFOND_MAX, PLAFOND_MIN, SEUIL_ALERTE_MAX, mouvementRecharge, mouvementRemboursement, mouvementRepas, mouvementsTransfert, peutReglerPlafond, plafondValable, refusTransfert, seuilValable, soldeDe } from "@/lib/solde";
@@ -84,7 +87,8 @@ export async function inscrire(d: DemandeInscription): Promise<{ ok: true; role:
     await tx.user.update({ where: { id }, data: { role } });
     if (role === "convive") {
       await tx.profil.create({
-        data: { userId: id, genre: d.genre === "employe" ? "employe" : "eleve", classe: (d.classe ?? "").trim().slice(0, NOM_MAX), codeFamille: await codeFamilleLibre(tx) },
+        // La carte de cantine (son badge) naît avec le compte : la cantine peut l'imprimer tout de suite.
+        data: { userId: id, genre: d.genre === "employe" ? "employe" : "eleve", classe: (d.classe ?? "").trim().slice(0, NOM_MAX), codeFamille: await codeFamilleLibre(tx), carte: nouveauJeton() },
       });
     }
   });
@@ -103,6 +107,12 @@ async function ouvrirSession(email: string, motDePasse: string, resterConnecte: 
   try {
     const session = await auth.api.signInEmail({ body: { email: adresse, password: motDePasse, rememberMe: resterConnecte }, headers: enTetes });
     noterConnexion(cles, true, Date.now());
+    // Un responsable désactivé par l'admin : le bon mot de passe ne suffit plus, la session tout juste ouverte se referme.
+    const compte = await prisma.user.findUnique({ where: { email: adresse }, select: { actif: true } });
+    if (compte && !compte.actif) {
+      await prisma.session.deleteMany({ where: { token: session.token } });
+      return echec(COMPTE_DESACTIVE);
+    }
     return { ok: true as const, adresse, session };
   } catch (e) {
     noterConnexion(cles, false, Date.now());
@@ -115,7 +125,7 @@ export async function seConnecter(email: string, motDePasse: string, resterConne
   const r = await ouvrirSession(email, motDePasse, resterConnecte);
   if (!r.ok) return r;
   const u = await prisma.user.findUnique({ where: { email: r.adresse }, select: { role: true } });
-  return { ok: true, role: (u?.role ?? "convive") as Role };
+  return { ok: true, role: lireRole(u?.role) };
 }
 
 /** La connexion de l'application mobile : la même porte, et le jeton de session que le téléphone renverra. */
@@ -123,12 +133,61 @@ export async function seConnecterMobile(email: string, motDePasse: string): Prom
   const r = await ouvrirSession(email, motDePasse, true);
   if (!r.ok) return r;
   const u = r.session.user as typeof r.session.user & { role?: string | null };
-  const role = (["convive", "parent", "admin"].includes(u.role ?? "") ? u.role : "convive") as Role;
+  const role = lireRole(u.role);
   return { ok: true, jeton: r.session.token, moi: { id: u.id, nom: u.name, email: u.email, role, photo: u.image ?? null } };
 }
 
 export async function seDeconnecter() {
   await auth.api.signOut({ headers: await headers() }).catch(() => {});
+}
+
+/* ── L'équipe de la cantine ────────────────────────────────────────────────── */
+
+export const COMPTE_DESACTIVE = "Ce compte est désactivé, vois avec l'admin de la cantine";
+
+/**
+ * L'admin crée un responsable de cantine (la page Réglages) : jamais par l'inscription publique. Le compte est prêt
+ * tout de suite ; l'admin lui donne son mot de passe de vive voix.
+ */
+export async function ajouterResponsable(d: { nom: string; email: string; motDePasse: string }): Promise<Fait | Echec> {
+  const refus = refusResponsable(d);
+  if (refus) return echec(refus);
+  const email = d.email.trim().toLowerCase();
+  if (await prisma.user.findUnique({ where: { email } })) return echec("Un compte existe déjà avec cet e-mail");
+  const id = nouvelId("u_");
+  const hache = await hashPassword(d.motDePasse);
+  await prisma.$transaction([
+    prisma.user.create({ data: { id, name: d.nom.trim().replace(/\s+/g, " "), email, emailVerified: true, role: "responsable" } }),
+    prisma.account.create({ data: { id: nouvelId("a_"), accountId: id, providerId: "credential", userId: id, password: hache } }),
+  ]);
+  return FAIT;
+}
+
+/**
+ * L'admin désactive ou réactive un responsable. Désactivé, ses sessions se ferment et il ne peut plus se connecter ;
+ * ce qu'il a encaissé et servi reste à son nom. Un admin ne se désactive pas ici.
+ */
+export async function changerActif(userId: string, actif: boolean): Promise<Fait | Echec> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (!u || u.role !== "responsable") return echec("Seul un responsable de cantine se désactive ici");
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { actif } }),
+    ...(actif ? [] : [prisma.session.deleteMany({ where: { userId } })]),
+  ]);
+  return FAIT;
+}
+
+/** L'admin donne un nouveau mot de passe à un responsable qui a oublié le sien : ses sessions se ferment. */
+export async function nouveauMotDePasse(userId: string, motDePasse: string): Promise<Fait | Echec> {
+  const refus = refusMotDePasse(motDePasse);
+  if (refus) return echec(refus);
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (!u || u.role !== "responsable") return echec("Seul le mot de passe d'un responsable de cantine se change ici");
+  const hache = await hashPassword(motDePasse);
+  const fait = await prisma.account.updateMany({ where: { userId, providerId: "credential" }, data: { password: hache } });
+  if (fait.count !== 1) return echec("Ce compte n'a pas de mot de passe à changer");
+  await prisma.session.deleteMany({ where: { userId } });
+  return FAIT;
 }
 
 /* ── Réserver, annuler, servir ─────────────────────────────────────────────── */
@@ -142,12 +201,23 @@ async function codeLibre(tx: Tx, jour: string) {
 
 const soldeDans = async (tx: Tx, conviveId: string) => soldeDe(await tx.mouvement.findMany({ where: { conviveId }, select: { montant: true } }));
 
+/** Comment ce repas est payé, et s'il est pris au comptoir : `serviPar` dit qui le sert, il est alors servi dans le même geste. */
+export type OptionsReservation = { paiement?: Paiement; serviPar?: string };
+
 /**
- * Réserver, c'est payer : la réservation et son mouvement s'écrivent ensemble. Rend le jeton et le code du ticket.
+ * Réserver. Payé sur le solde (par défaut), la réservation et son mouvement s'écrivent ensemble : file express.
+ * `paiement: "a_payer"` : réservé sans payer, rien ne bouge sur le solde, la caisse encaissera au scan : file réservation.
+ * `serviPar` : le repas est pris au comptoir sans réservation (le badge), payé par le moyen que la caisse a choisi et
+ * servi tout de suite : file classique.
  * `parLaCantine` : c'est la cantine qui réserve pour ce convive, clôture comprise. `horsDelai` : elle accepte une demande
- * hors délai, le seul chemin qui passe après la clôture (src/lib/reservation.ts, peutReserver).
+ * hors délai ou sert au comptoir, le seul chemin qui passe après la clôture (src/lib/reservation.ts, peutReserver).
  */
-export async function reserver(conviveId: string, menuJourId: string, maintenant = Date.now(), parLaCantine = false, creneau: string | null = null, horsDelai = false): Promise<{ ok: true; jeton: string; code: string; plat: string } | Echec> {
+export async function reserver(conviveId: string, menuJourId: string, maintenant = Date.now(), parLaCantine = false, creneau: string | null = null, horsDelai = false, options: OptionsReservation = {}): Promise<{ ok: true; jeton: string; code: string; plat: string } | Echec> {
+  const paiement: Paiement = options.paiement ?? "solde";
+  const surPlace = options.serviPar !== undefined;
+  // Au comptoir, on paie tout de suite : « à payer » n'a de sens que pour une réservation.
+  if (surPlace && paiement === "a_payer") return echec("Au comptoir, le repas se paie tout de suite");
+  if (!surPlace && (paiement === "especes" || paiement === "mobile_money")) return echec("Les espèces et le Mobile Money s'encaissent au comptoir");
   const reglages = await lireReglages();
   return prisma.$transaction(async (tx) => {
     const mj = await tx.menuJour.findUnique({ where: { id: menuJourId }, include: { plat: true } });
@@ -179,6 +249,7 @@ export async function reserver(conviveId: string, menuJourId: string, maintenant
       parLaCantine,
       horsDelai,
       heureCloture: reglages.heureCloture,
+      sansSolde: paiement !== "solde",
     });
     if (!verdict.ok) {
       if (verdict.refus !== "profil") return echec(verdict.phrase);
@@ -197,17 +268,25 @@ export async function reserver(conviveId: string, menuJourId: string, maintenant
     if (!passage.ok) return echec(passage.phrase);
 
     const r = await tx.reservation.create({
-      data: { conviveId, menuJourId, jour: mj.jour, prix: mj.prix, jeton: nouveauJeton(), code: await codeLibre(tx, mj.jour), creneau: actifs ? creneau : null, creeLe: new Date(maintenant) },
+      data: {
+        conviveId, menuJourId, jour: mj.jour, prix: mj.prix, jeton: nouveauJeton(), code: await codeLibre(tx, mj.jour), creneau: actifs ? creneau : null, creeLe: new Date(maintenant),
+        file: fileDuRepas({ surPlace, paiement }), paiement,
+        // Pris au comptoir : servi dans le même geste, par celui qui a encaissé.
+        ...(surPlace ? { etat: "servie", serviLe: new Date(maintenant), serviPar: options.serviPar } : {}),
+      },
     });
-    const m = mouvementRepas(mj.prix);
-    await tx.mouvement.create({
-      data: { conviveId, genre: m.genre, montant: m.montant, libelle: `Repas du ${jourLong(mj.jour)} : ${mj.plat.nom}`, reservationId: r.id, creeLe: new Date(maintenant) },
-    });
+    // Seul le solde a un journal : les espèces et le Mobile Money vont à la caisse, « à payer » n'a encore rien payé.
+    if (paiement === "solde") {
+      const m = mouvementRepas(mj.prix);
+      await tx.mouvement.create({
+        data: { conviveId, genre: m.genre, montant: m.montant, libelle: `Repas du ${jourLong(mj.jour)} : ${mj.plat.nom}`, reservationId: r.id, creeLe: new Date(maintenant) },
+      });
+    }
     return { ok: true as const, jeton: r.jeton, code: r.code, plat: mj.plat.nom };
   });
 }
 
-/** Annuler avant la clôture rembourse le repas en entier, dans la même transaction. */
+/** Annuler avant la clôture rembourse le repas en entier, dans la même transaction ; réservé sans payer, il n'y a rien à rendre. */
 export async function annuler(conviveId: string, reservationId: string, maintenant = Date.now()): Promise<Fait | Echec> {
   const { heureCloture } = await lireReglages();
   return prisma.$transaction(async (tx) => {
@@ -218,10 +297,12 @@ export async function annuler(conviveId: string, reservationId: string, maintena
     // Sous condition : deux annulations au même instant ne remboursent qu'une fois, et un repas servi entre-temps reste servi.
     const fait = await tx.reservation.updateMany({ where: { id: r.id, etat: "reservee" }, data: { etat: "annulee", annuleLe: new Date(maintenant) } });
     if (fait.count !== 1) return echec("Cette réservation vient de changer, recharge la page");
-    const m = mouvementRemboursement(r.prix);
-    await tx.mouvement.create({
-      data: { conviveId, genre: m.genre, montant: m.montant, libelle: `Annulation : ${r.menuJour.plat.nom}`, reservationId: r.id, creeLe: new Date(maintenant) },
-    });
+    if (!resteAPayer(r)) {
+      const m = mouvementRemboursement(r.prix);
+      await tx.mouvement.create({
+        data: { conviveId, genre: m.genre, montant: m.montant, libelle: `Annulation : ${r.menuJour.plat.nom}`, reservationId: r.id, creeLe: new Date(maintenant) },
+      });
+    }
     return FAIT;
   });
 }
@@ -359,6 +440,16 @@ export async function carteDe(conviveId: string): Promise<string | null> {
 }
 
 /**
+ * Donne une carte à chaque convive qui n'en a pas encore (les comptes d'avant le 21/11/2026, créés sans carte) : la
+ * cantine peut alors imprimer le badge de tout le monde. Rend le nombre de cartes créées.
+ */
+export async function creerCartesManquantes(): Promise<number> {
+  const sans = await prisma.profil.findMany({ where: { carte: null }, select: { userId: true } });
+  for (const p of sans) await prisma.profil.updateMany({ where: { userId: p.userId, carte: null }, data: { carte: nouveauJeton() } });
+  return sans.length;
+}
+
+/**
  * Refaire sa carte : un nouveau jeton, l'ancien ne passe plus au comptoir. Pour une carte perdue, prêtée ou
  * photographiée : sans cela, sa photo servait de passe pour toujours.
  */
@@ -424,13 +515,23 @@ export async function peserRestes(menuJourId: string, grammes: number | null, ma
  * `enCause` : ce que CE plat contient et que ce convive ne mange pas (allergène, porc, régime). Réserver le refuse, mais
  * un profil réglé après la réservation, ou un plat modifié, laisse passer le cas : le comptoir doit le voir avant de servir.
  */
-export type ReponseScan = Scan & { convive?: string; conviveId?: string; photo?: string | null; plat?: string; code?: string; creneau?: string | null; allergies?: Etiquette[]; enCause?: Etiquette[] };
+export type ReponseScan = Scan & {
+  convive?: string; conviveId?: string; photo?: string | null; plat?: string; code?: string; creneau?: string | null; allergies?: Etiquette[]; enCause?: Etiquette[];
+  /** La file du repas (express, reservation, classique) et son paiement, dès qu'un repas est trouvé. */
+  file?: string; paiement?: string;
+  /** Ce qu'il reste à encaisser (« a_payer ») et le solde du convive, pour proposer de payer avec. */
+  prix?: number; solde?: number;
+};
 
 /**
  * Le comptoir a lu un QR ou tapé un code court. Seul un ticket d'aujourd'hui, encore réservé, passe à « servi », et
  * une seule fois. La réponse dit toujours pourquoi (src/lib/reservation.ts, scanner).
+ * `par` : qui sert, l'identifiant de la personne de la cantine, ou « borne » (le tableau de bord le compte par personne).
+ * Un ticket réservé sans payer répond « a_payer » et n'est pas servi : la caisse rappelle avec `moyen` (espèces, Mobile
+ * Money, ou le solde du convive), le repas est alors payé et servi dans la même transaction. Un badge sans repas
+ * réservé répond « sans_repas » : la caisse propose les plats du jour (servirAuBadge).
  */
-export async function servir(cle: string, maintenant = Date.now()): Promise<ReponseScan> {
+export async function servir(cle: string, par: string, maintenant = Date.now(), moyen?: MoyenComptoir): Promise<ReponseScan> {
   const lu = lireCle(cle);
   if (!lu) return scanner(null, maintenant);
   let lue: NonNullable<ReturnType<typeof lireCle>> = lu;
@@ -442,7 +543,7 @@ export async function servir(cle: string, maintenant = Date.now()): Promise<Repo
       const profil = await tx.profil.findUnique({ where: { carte: lue.carte }, select: { userId: true, allergenes: true, user: { select: { name: true, image: true } } } });
       if (!profil) return { genre: "inconnu" as const, phrase: "Carte inconnue" };
       const duJour = await tx.reservation.findFirst({ where: { conviveId: profil.userId, jour: jourIso(maintenant), etat: { not: "annulee" } }, include: avec });
-      if (!duJour) return { genre: "inconnu" as const, phrase: "Pas de repas réservé aujourd'hui", convive: profil.user.name, conviveId: profil.userId, photo: profil.user.image ?? null, allergies: allergiesDe(profil.allergenes) };
+      if (!duJour) return { genre: "sans_repas" as const, phrase: "Pas de repas réservé aujourd'hui", convive: profil.user.name, conviveId: profil.userId, photo: profil.user.image ?? null, allergies: allergiesDe(profil.allergenes), solde: await soldeDans(tx, profil.userId) };
       lue = { jeton: duJour.jeton };
     }
     const r = "jeton" in lue
@@ -451,17 +552,57 @@ export async function servir(cle: string, maintenant = Date.now()): Promise<Repo
         ?? (await tx.reservation.findFirst({ where: { code: lue.code }, orderBy: { jour: "desc" }, include: avec }));
     let reponse = scanner(r, maintenant);
     if (!r) return reponse;
-    if (reponse.genre === "servi") {
+    let paiement = r.paiement;
+    let solde: number | undefined;
+    if (reponse.genre === "a_payer") {
+      solde = await soldeDans(tx, r.conviveId);
+      // La caisse a choisi le moyen : payé et servi ensemble, une seule fois (sous condition, comme le service).
+      const verdict = moyen ? peutEncaisser(moyen, solde, r.prix) : null;
+      if (moyen && verdict?.ok) {
+        const fait = await tx.reservation.updateMany({ where: { id: r.id, etat: "reservee", paiement: "a_payer" }, data: { etat: "servie", serviLe: new Date(maintenant), serviPar: par, paiement: moyen } });
+        if (fait.count === 1) {
+          if (moyen === "solde") {
+            const m = mouvementRepas(r.prix);
+            await tx.mouvement.create({ data: { conviveId: r.conviveId, genre: m.genre, montant: m.montant, libelle: `Repas du ${jourLong(r.jour)} : ${r.menuJour.plat.nom}`, reservationId: r.id, creeLe: new Date(maintenant) } });
+            solde -= r.prix;
+          }
+          paiement = moyen;
+          reponse = { genre: "servi", phrase: "Servi" };
+        } else {
+          reponse = scanner({ etat: "servie", jour: r.jour, serviLe: new Date(maintenant) }, maintenant);
+        }
+      } else if (verdict && !verdict.ok) {
+        reponse = { genre: "a_payer", phrase: verdict.phrase };
+      }
+    } else if (reponse.genre === "servi") {
       // Sous condition : deux scans du même ticket au même instant, un seul sert, l'autre répond « déjà servi ».
-      const fait = await tx.reservation.updateMany({ where: { id: r.id, etat: "reservee" }, data: { etat: "servie", serviLe: new Date(maintenant) } });
+      const fait = await tx.reservation.updateMany({ where: { id: r.id, etat: "reservee" }, data: { etat: "servie", serviLe: new Date(maintenant), serviPar: par } });
       if (fait.count !== 1) reponse = scanner({ etat: "servie", jour: r.jour, serviLe: new Date(maintenant) }, maintenant);
     }
     const enCause = etiquettesEnCause(
       { allergenes: lireListe(r.convive.profil?.allergenes ?? ""), regimes: lireListe(r.convive.profil?.regimes ?? "") },
       { allergenes: lireListe(r.menuJour.plat.allergenes), porc: r.menuJour.plat.porc, vegetarien: r.menuJour.plat.vegetarien },
     );
-    return { ...reponse, convive: r.convive.name, conviveId: r.convive.id, photo: r.convive.image ?? null, plat: r.menuJour.plat.nom, code: r.code, creneau: r.creneau, allergies: allergiesDe(r.convive.profil?.allergenes), enCause };
+    return { ...reponse, convive: r.convive.name, conviveId: r.convive.id, photo: r.convive.image ?? null, plat: r.menuJour.plat.nom, code: r.code, creneau: r.creneau, allergies: allergiesDe(r.convive.profil?.allergenes), enCause, file: r.file, paiement, prix: r.prix, solde };
   });
+}
+
+/**
+ * La file classique : un badge sans repas réservé. La caisse a montré les plats du jour, le convive a choisi, elle a
+ * choisi le moyen de paiement : le repas est créé, payé et servi dans la même transaction, avec les règles de la
+ * réservation (un repas par jour, portions, profil alimentaire, plafond, et le solde quand c'est lui qui paie).
+ */
+export async function servirAuBadge(cle: string, menuJourId: string, moyen: MoyenComptoir, par: string, maintenant = Date.now()): Promise<ReponseScan> {
+  const lu = lireCle(cle);
+  if (!lu || !("carte" in lu)) return { genre: "inconnu", phrase: "Carte inconnue" };
+  const profil = await prisma.profil.findUnique({ where: { carte: lu.carte }, select: { userId: true, allergenes: true, user: { select: { name: true, image: true } } } });
+  if (!profil) return { genre: "inconnu", phrase: "Carte inconnue" };
+  const qui = { convive: profil.user.name, conviveId: profil.userId, photo: profil.user.image ?? null, allergies: etiquettesAllergenes(lireListe(profil.allergenes)) };
+  const mj = await prisma.menuJour.findUnique({ where: { id: menuJourId }, select: { jour: true } });
+  if (!mj || mj.jour !== jourIso(maintenant)) return { genre: "sans_repas", phrase: "Ce plat n'est pas au menu d'aujourd'hui", ...qui };
+  const r = await reserver(profil.userId, menuJourId, maintenant, true, null, true, { paiement: moyen, serviPar: par });
+  if (!r.ok) return { genre: "sans_repas", phrase: r.erreur, enCause: r.enCause, ...qui };
+  return { genre: "servi", phrase: "Servi", plat: r.plat, code: r.code, file: "classique", paiement: moyen, ...qui };
 }
 
 /** Noter un repas servi, de 1 à 5, avec un mot en option. Une note par repas : la renvoyer la remplace. */

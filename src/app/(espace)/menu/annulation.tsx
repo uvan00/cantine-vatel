@@ -17,10 +17,12 @@ export function useAnnulation() {
   const [enCours, lancer] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
-  const annuler = async (repas: { id: string; plat: string; prix: number }, fait?: () => void) => {
+  const annuler = async (repas: { id: string; plat: string; prix: number; paiement?: string }, fait?: () => void) => {
     const oui = await confirmer({
       titre: "Annuler ce repas",
-      message: `Tu annules « ${repas.plat} ». Tu es remboursé tout de suite : ${fcfa(repas.prix)} reviennent sur ton solde.`,
+      message: repas.paiement === "a_payer"
+        ? `Tu annules « ${repas.plat} ». Tu n'avais rien payé : il n'y a rien à rendre.`
+        : `Tu annules « ${repas.plat} ». Tu es remboursé tout de suite : ${fcfa(repas.prix)} reviennent sur ton solde.`,
       libelle: "Annuler le repas",
       refus: "Garder mon repas",
       corbeille: false,

@@ -10,7 +10,7 @@
     "lint": "eslint",
     "test": "node --test \"src/**/*.test.ts\"",
     "base": "prisma db push",
-    "demo": "prisma db push --skip-generate && node scripts/demo.mts && node scripts/stock-demo.mts"
+    "demo": "prisma db push --skip-generate && node scripts/demo.mts && node scripts/stock-demo.mts && node scripts/files-demo.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",

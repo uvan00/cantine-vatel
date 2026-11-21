@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { estCantine, type Role } from "@/lib/roles";
 import { ChevronLeft, CircleUser, Mail, MenuRestaurant, Receipt, Users, Wallet } from "@/components/icons";
 
 // La coque du convive et du parent, pensée pour le téléphone : une colonne de 560 px au plus et quatre onglets en bas
@@ -27,10 +28,10 @@ const ONGLETS: Record<"convive" | "parent", Onglet[]> = {
 
 const actif = (chemin: string, o: Onglet) => chemin === o.href || o.racines.some((r) => chemin === r || chemin.startsWith(`${r}/`));
 
-export function CoqueEspace({ role, nonLus = 0, children }: { role: "convive" | "parent" | "admin"; nonLus?: number; children: React.ReactNode }) {
+export function CoqueEspace({ role, nonLus = 0, children }: { role: Role; nonLus?: number; children: React.ReactNode }) {
   const chemin = usePathname();
   // Une recharge se paie comme dans un checkout, sans les onglets : le retour en haut de sa page suffit.
-  const onglets = role === "admin" || /^\/recharger\/[^/]+$/.test(chemin) ? [] : ONGLETS[role];
+  const onglets = estCantine(role) || /^\/recharger\/[^/]+$/.test(chemin) ? [] : ONGLETS[role];
   return (
     <div className="min-h-dvh bg-cote">
       <div className={`mx-auto min-h-dvh w-full max-w-[560px] bg-fond ${onglets.length > 0 ? "pb-[87px]" : "pb-6"} sm:border-x sm:border-[color:var(--h-filet)]`}>

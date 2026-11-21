@@ -1,4 +1,4 @@
-import { ChefHat, Home, Megaphone, MenuRestaurant, QrCode, Settings2, ShoppingBag, Wallet } from "@/components/icons";
+import { ChefHat, Home, IdCard, Megaphone, MenuRestaurant, QrCode, Settings2, ShoppingBag, Wallet } from "@/components/icons";
 
 // Les rubriques de la cantine, dans un fichier sans « use client » : la coque (côté navigateur) et la page « Plus »
 // (côté serveur) lisent la même liste. Exportée depuis la coque, la page serveur ne recevait qu'une référence vers le
@@ -16,5 +16,6 @@ export const RUBRIQUES = [
 export const AUTRES_RUBRIQUES = [
   { href: "/admin/messages", libelle: "Messages", Icon: Megaphone },
   { href: "/admin/besoins", libelle: "Besoins", Icon: ShoppingBag },
+  { href: "/admin/badges", libelle: "Badges", Icon: IdCard },
   { href: "/admin/reglages", libelle: "Réglages", Icon: Settings2 },
 ];

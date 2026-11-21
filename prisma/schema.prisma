@@ -26,6 +26,9 @@ model User {
   updatedAt     DateTime @updatedAt
   /// convive | parent | admin. Posé par le serveur, jamais reçu du navigateur.
   role          String   @default("convive")
+  /// false : un responsable de cantine désactivé par l'admin (parti, remplacé). Il ne se connecte plus ; ce qu'il a
+  /// encaissé et servi reste à son nom.
+  actif         Boolean  @default(true)
 
   sessions           Session[]
   accounts           Account[]
@@ -179,6 +182,13 @@ model Reservation {
   prix       Int
   /// reservee | servie | annulee. « Non retirée » se calcule : réservée alors que son jour est passé.
   etat       String      @default("reservee")
+  /// express | reservation | classique : la file du comptoir, fixée à la création (src/lib/reservation.ts). Réservé et
+  /// payé d'avance : express ; réservé, à payer au comptoir : reservation ; pris au comptoir avec le badge, sans
+  /// réservation : classique. Les repas d'avant le 21/11/2026 sont tous « express ».
+  file       String      @default("express")
+  /// solde | a_payer | especes | mobile_money : comment le repas est payé. « a_payer » : rien n'est encaissé tant que la
+  /// caisse ne l'a pas dit ; elle choisit alors le moyen, et le repas est servi dans le même geste.
+  paiement   String      @default("solde")
   /// 32 caractères au hasard : c'est lui que porte le QR du ticket.
   jeton      String      @unique
   /// 6 caractères sans ambiguïté, à taper au comptoir si la caméra ne lit pas.
@@ -187,6 +197,9 @@ model Reservation {
   creneau    String?
   creeLe     DateTime    @default(now())
   serviLe    DateTime?
+  /// Qui a servi : l'identifiant de la personne de la cantine qui a scanné, ou « borne ». Vide pour les repas servis
+  /// avant le 21/11/2026.
+  serviPar   String?
   annuleLe   DateTime?
   mouvements Mouvement[]
   note       Note?

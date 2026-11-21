@@ -8,7 +8,7 @@ import { clotureLisible, jourIso, jourLong, jourProche } from "@/lib/jours";
 import { MARQUE } from "@/lib/marque";
 import { erreur, refus, reponse } from "@/lib/mobile";
 import { qrSvg } from "@/lib/qr";
-import { LIBELLE_ETAT, etatAffiche, heureH, peutAnnuler } from "@/lib/reservation";
+import { LIBELLE_ETAT, etatAffiche, heureH, nomDeLaFile, paiementLisible, peutAnnuler } from "@/lib/reservation";
 import { autorise, origine } from "@/lib/session";
 
 // Un ticket entier, comme la page /ticket/<jeton> du site. Son QR est fabriqué ici, par la même fonction et pour la même
@@ -44,6 +44,11 @@ export async function GET(requete: Request, { params }: { params: Promise<{ jeto
     quand: jourProche(repas.jour, instant),
     etat,
     libelleEtat: LIBELLE_ETAT[etat],
+    // Sa file au comptoir et comment il est payé (src/lib/reservation.ts), en identifiants et en mots.
+    file: repas.file,
+    nomFile: nomDeLaFile(repas.file),
+    paiement: repas.paiement,
+    libellePaiement: paiementLisible(repas.paiement, etat),
     serviA: repas.serviLe ? heureH(repas.serviLe) : null,
     // Seul le ticket d'aujourd'hui, pas encore servi, peut changer sous les yeux du convive : lui seul se relit.
     enDirect: repas.etat === "reservee" && repas.jour === jourIso(instant),

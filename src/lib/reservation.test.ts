@@ -1,7 +1,10 @@
 // Essais des règles de réservation, d'annulation et du scan au comptoir : `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estComplet, etatAffiche, peutAnnuler, peutDemanderHorsDelai, peutReserver, portionsRestantes, scanner, type DemandeHorsDelai, type DemandeReservation } from "./reservation.ts";
+import {
+  estComplet, estMoyenComptoir, estimationSansReservation, etatAffiche, fileDuRepas, lireFile, lirePaiement, nomDeLaFile, paiementLisible, peutAnnuler,
+  peutDemanderHorsDelai, peutEncaisser, peutReserver, portionsRestantes, resteAPayer, scanner, type DemandeHorsDelai, type DemandeReservation,
+} from "./reservation.ts";
 
 const t = (iso: string) => Date.parse(iso);
 /** fcfa() met des espaces insécables : on compare sans aucune espace. */
@@ -173,4 +176,80 @@ test("le plafond de la semaine bloque le repas qui le dépasserait", () => {
   assert.equal(!v.ok && v.refus, "plafond");
   assert.equal(serre(!v.ok ? v.phrase : ""), serre("Ce repas dépasserait ton plafond de la semaine, 5 000 F CFA"));
   assert.deepEqual(peutReserver(demande({ plafond: { max: null, depense: 99999 } })), { ok: true });
+});
+
+/* ── Le paiement au comptoir et les trois files (21/11/2026) ─────────────────── */
+
+test("réserver sans payer ne regarde pas le solde, mais garde toutes les autres règles", () => {
+  assert.equal(peutReserver(demande({ solde: 0 })).ok, false);
+  assert.deepEqual(peutReserver(demande({ solde: 0, sansSolde: true })), { ok: true });
+  // La clôture, le repas par jour, le plat complet, le profil et le plafond tiennent toujours.
+  assert.equal(peutReserver(demande({ sansSolde: true, maintenant: t("2026-11-21T09:30:00Z") })).ok, false);
+  assert.equal(peutReserver(demande({ sansSolde: true, dejaReserve: true })).ok, false);
+  assert.equal(peutReserver(demande({ sansSolde: true, epuise: true })).ok, false);
+  assert.equal(peutReserver(demande({ sansSolde: true, incompatibilites: ["contient de l'arachide"] })).ok, false);
+  const plafond = peutReserver(demande({ sansSolde: true, plafond: { max: 2000, depense: 1000 } }));
+  assert.equal(plafond.ok === false && plafond.refus, "plafond");
+});
+
+test("un ticket réservé sans payer se scanne « à encaisser », avec son prix, avant d'être servi", () => {
+  const midi = t("2026-11-21T12:20:00Z");
+  const r = scanner({ etat: "reservee", jour: "2026-11-21", serviLe: null, paiement: "a_payer", prix: 1500 }, midi);
+  assert.equal(r.genre, "a_payer");
+  assert.equal(serre(r.phrase), serre("À encaisser : 1 500 F CFA"));
+  // Payé (sur le solde, ou au comptoir), il se sert ; un autre jour ou annulé, la raison passe avant le paiement.
+  assert.equal(scanner({ etat: "reservee", jour: "2026-11-21", serviLe: null, paiement: "solde", prix: 1500 }, midi).genre, "servi");
+  assert.equal(scanner({ etat: "reservee", jour: "2026-11-21", serviLe: null }, midi).genre, "servi");
+  assert.equal(scanner({ etat: "reservee", jour: "2026-11-22", serviLe: null, paiement: "a_payer", prix: 1500 }, midi).genre, "autre_jour");
+  assert.equal(scanner({ etat: "annulee", jour: "2026-11-21", serviLe: null, paiement: "a_payer", prix: 1500 }, midi).genre, "annule");
+});
+
+test("la caisse encaisse en espèces ou par Mobile Money sans regarder le solde ; sur le solde, il doit suffire", () => {
+  assert.deepEqual(peutEncaisser("especes", 0, 1500), { ok: true });
+  assert.deepEqual(peutEncaisser("mobile_money", 0, 1500), { ok: true });
+  assert.deepEqual(peutEncaisser("solde", 1500, 1500), { ok: true });
+  const court = peutEncaisser("solde", 1000, 1500);
+  assert.equal(court.ok, false);
+  assert.equal(court.ok === false && serre(court.phrase), serre("Il lui manque 500 F CFA sur son solde"));
+  assert.equal(estMoyenComptoir("especes"), true);
+  assert.equal(estMoyenComptoir("a_payer"), false);
+  assert.equal(estMoyenComptoir("cheque"), false);
+});
+
+test("le paiement se lit et se dit ; un repas d'avant, sans paiement noté, est payé sur le solde", () => {
+  assert.equal(lirePaiement(null), "solde");
+  assert.equal(lirePaiement("n'importe quoi"), "solde");
+  assert.equal(lirePaiement("a_payer"), "a_payer");
+  assert.equal(resteAPayer({ paiement: "a_payer" }), true);
+  assert.equal(resteAPayer({ paiement: "especes" }), false);
+  assert.equal(resteAPayer({}), false);
+  assert.equal(paiementLisible("solde", "reservee"), "Payé avec ton solde");
+  assert.equal(paiementLisible("solde", "annulee"), "Rendu sur ton solde");
+  assert.equal(paiementLisible("a_payer", "reservee"), "À payer au comptoir");
+  assert.equal(paiementLisible("a_payer", "annulee"), "Rien n'était payé");
+  // Le jour passé sans être venu : un repas à payer n'a jamais été payé, un repas payé le reste.
+  assert.equal(paiementLisible("a_payer", "non_retiree"), "Jamais payé");
+  assert.equal(paiementLisible("solde", "non_retiree"), "Payé avec ton solde");
+  assert.equal(paiementLisible("especes", "servie"), "Payé en espèces au comptoir");
+  assert.equal(paiementLisible("mobile_money", "servie"), "Payé par Mobile Money au comptoir");
+});
+
+test("les trois files : express (réservé et payé), réservation (à payer), classique (sans réservation)", () => {
+  assert.equal(fileDuRepas({ surPlace: false, paiement: "solde" }), "express");
+  assert.equal(fileDuRepas({ surPlace: false, paiement: "a_payer" }), "reservation");
+  assert.equal(fileDuRepas({ surPlace: true, paiement: "especes" }), "classique");
+  assert.equal(fileDuRepas({ surPlace: true, paiement: "solde" }), "classique");
+  assert.equal(lireFile(null), "express");
+  assert.equal(lireFile("classique"), "classique");
+  assert.equal(nomDeLaFile("reservation"), "File réservation");
+  assert.equal(nomDeLaFile(undefined), "File express");
+});
+
+test("l'estimation des repas sans réservation : la moyenne des cinq derniers services, rien sans historique", () => {
+  assert.equal(estimationSansReservation([]), null);
+  assert.equal(estimationSansReservation([6]), 6);
+  assert.equal(estimationSansReservation([4, 7, 5]), 5);
+  assert.equal(estimationSansReservation([0, 0, 0]), 0);
+  // Le sixième jour, le plus ancien, ne compte pas.
+  assert.equal(estimationSansReservation([2, 2, 2, 2, 2, 50]), 2);
 });

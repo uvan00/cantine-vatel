@@ -7,7 +7,7 @@ import { borneLancee } from "@/lib/borne-serveur";
 import { serviceDuJour } from "@/lib/donnees-admin";
 import { maintenant } from "@/lib/horloge";
 import { jourIso } from "@/lib/jours";
-import { autorise } from "@/lib/session";
+import { CANTINE, autorise } from "@/lib/session";
 import { lancerBorne, quitterBorne } from "./actions";
 
 export const metadata: Metadata = { title: "Borne d'entrée" };
@@ -32,7 +32,7 @@ export default async function PageBorne() {
     );
   }
   // Pas encore lancée : seule la cantine peut la lancer sur cet appareil.
-  if (!(await autorise("admin"))) redirect("/connexion");
+  if (!(await autorise(...CANTINE))) redirect("/connexion");
   return (
     <main className="grid min-h-dvh place-items-center bg-[rgb(var(--sn-page))] px-4 py-10">
       <div className="w-full max-w-[440px] rounded-[24px] border border-[color:var(--h-filet)] bg-surface p-6">

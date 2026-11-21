@@ -5,7 +5,7 @@ import { z } from "zod";
 import { reserver, peserRestes } from "@/lib/operations";
 import { lireKilos } from "@/lib/restes";
 import type { Etiquette } from "@/lib/listes";
-import { autorise } from "@/lib/session";
+import { CANTINE, autorise } from "@/lib/session";
 
 // Deux gestes de la cantine sur la page des commandes : peser les restes d'un plat après le service, et réserver pour
 // un convive (l'élève sans téléphone, au comptoir). Chacun vérifie que c'est la cantine qui appelle, valide ce qu'il
@@ -19,7 +19,7 @@ const Id = z.string().min(1).max(64);
 
 /** Les restes d'un plat, tapés en kilos (« 1,3 ») ; un champ vide efface la pesée. */
 export async function peserLesRestes(d: { menuJourId: string; kilos: string }): Promise<Retour> {
-  if (!(await autorise("admin"))) return REFUS;
+  if (!(await autorise(...CANTINE))) return REFUS;
   const v = z.object({ menuJourId: Id, kilos: z.string().max(20) }).safeParse(d);
   if (!v.success) return ILLISIBLE;
   const vide = v.data.kilos.trim() === "";
@@ -35,7 +35,7 @@ export type RetourReservation = { ok: true; plat: string; code: string } | { ok:
 
 /** La cantine réserve pour un convive, avec les règles de toujours (solde, profil, portions), même après la clôture du jour. */
 export async function reserverPourConvive(d: { conviveId: string; menuJourId: string }): Promise<RetourReservation> {
-  if (!(await autorise("admin"))) return REFUS;
+  if (!(await autorise(...CANTINE))) return REFUS;
   const v = z.object({ conviveId: Id, menuJourId: Id }).safeParse(d);
   if (!v.success) return ILLISIBLE;
   const r = await reserver(v.data.conviveId, v.data.menuJourId, Date.now(), true);

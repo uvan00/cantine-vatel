@@ -2,7 +2,7 @@ import { ticketsDe, type Repas } from "@/lib/donnees-convive";
 import { maintenant } from "@/lib/horloge";
 import { jourIso, jourLong, jourProche } from "@/lib/jours";
 import { refus, reponse } from "@/lib/mobile";
-import { LIBELLE_ETAT, etatAffiche, heureH } from "@/lib/reservation";
+import { LIBELLE_ETAT, etatAffiche, heureH, nomDeLaFile, paiementLisible } from "@/lib/reservation";
 import { autorise } from "@/lib/session";
 
 // Les tickets du convive, comme la page /ticket du site : celui d'aujourd'hui, ceux qui arrivent, les dix derniers repas
@@ -25,6 +25,11 @@ function enLigne(r: Repas, instant: number) {
     quand: majuscule(jourProche(r.jour, instant)),
     etat,
     libelleEtat: LIBELLE_ETAT[etat],
+    // Sa file au comptoir et comment il est payé (src/lib/reservation.ts), en identifiants et en mots.
+    file: r.file,
+    nomFile: nomDeLaFile(r.file),
+    paiement: r.paiement,
+    libellePaiement: paiementLisible(r.paiement, etat),
     serviA: r.serviLe ? heureH(r.serviLe) : null,
     note: r.note,
     mot: r.mot,

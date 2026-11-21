@@ -1,7 +1,7 @@
 import { Table } from "@/components/brand";
 import { dateLongue, fcfa } from "@/lib/format";
 import { jourLong } from "@/lib/jours";
-import { heureH, type EtatAffiche } from "@/lib/reservation";
+import { heureH, nomDeLaFile, paiementLisible, type EtatAffiche } from "@/lib/reservation";
 
 // LE TICKET REPAS : le moment de la cantine, dessiné d'après le modèle de tickets repas donné par le propriétaire le
 // 21/11/2026 (classes .ticket-repas de globals.css). La partie bleue porte le repas et la marque Vatel, le talon blanc
@@ -62,6 +62,9 @@ export type DonneesTicket = {
   /** Le code court, à donner au comptoir si la caméra ne lit pas le QR. */
   code: string;
   reserveLe: string;
+  /** Sa file au comptoir (express, reservation, classique) et comment il est payé (src/lib/reservation.ts). */
+  file: string;
+  paiement: string;
 };
 
 /**
@@ -84,6 +87,8 @@ export function TicketRepas({ ticket, qr, etat, serviLe, tombe = false, classNam
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[15px] leading-5 font-bold">Ticket repas</p>
+            {/* La file où se ranger au comptoir : express (payé), réservation (à payer), classique (pris sur place). */}
+            <p className="mt-1 w-fit rounded-full bg-white/55 px-2.5 py-0.5 text-[13px] leading-5 font-semibold">{nomDeLaFile(ticket.file)}</p>
             <p className="mt-2 text-[24px] leading-[30px] font-semibold">{ticket.plat}</p>
             <p className="mt-1 text-[14px] leading-5 opacity-75">{ticket.convive}</p>
           </div>
@@ -94,7 +99,7 @@ export function TicketRepas({ ticket, qr, etat, serviLe, tombe = false, classNam
         <div className="relative mt-5 min-h-[64px] pr-[124px]">
           <p className="text-[18px] leading-6 font-bold first-letter:uppercase">{jourLong(ticket.jour)}</p>
           <p className="mt-0.5 font-mono text-[14px] leading-5 opacity-80">{fcfa(ticket.prix)}</p>
-          <p className="text-[13px] leading-5 opacity-70">{etat === "annulee" ? "Rendu sur ton solde" : "Payé avec ton solde"}</p>
+          <p className={`text-[13px] leading-5 ${ticket.paiement === "a_payer" && etat === "reservee" ? "font-semibold" : "opacity-70"}`}>{paiementLisible(ticket.paiement, etat)}</p>
           {etat === "reservee" && (
             <p className="absolute right-0 bottom-0 grid h-[60px] w-[116px] -rotate-8 place-items-center rounded-[10px] border border-dashed border-[#072A5D]/45 px-1 text-center text-[12px] leading-4 opacity-75">
               ici, le tampon du comptoir
@@ -118,7 +123,7 @@ export function TicketRepas({ ticket, qr, etat, serviLe, tombe = false, classNam
  * le talon. Le tampon tombe en travers du talon : une fois servi, le QR n'a plus rien à dire.
  */
 export function TalonTicket({ ticket, qr, etat, serviLe, className = "" }: {
-  ticket: Pick<DonneesTicket, "plat" | "jour" | "prix" | "code">;
+  ticket: Pick<DonneesTicket, "plat" | "jour" | "prix" | "code" | "file" | "paiement">;
   qr: string;
   etat: EtatAffiche;
   serviLe: string | null;
@@ -134,6 +139,7 @@ export function TalonTicket({ ticket, qr, etat, serviLe, className = "" }: {
         <p className="mt-1 line-clamp-2 text-[18px] leading-6 font-semibold">{ticket.plat}</p>
         <p className="mt-3 text-[14px] leading-5 font-bold first-letter:uppercase">{jourLong(ticket.jour)}</p>
         <p className="font-mono text-[13px] leading-5 opacity-80">{fcfa(ticket.prix)}</p>
+        <p className="text-[13px] leading-5 font-semibold">{nomDeLaFile(ticket.file)}{ticket.paiement === "a_payer" && etat === "reservee" ? ", à payer" : ""}</p>
       </div>
       <div className="ticket-repas__talon flex w-[112px] shrink-0 flex-col items-center justify-center px-3 py-4">
         <div className="size-[80px] [&>svg]:size-full" role="img" aria-label="Le QR de ton ticket" dangerouslySetInnerHTML={{ __html: qr }} />

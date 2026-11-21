@@ -1,7 +1,7 @@
 // La comptabilité de la cantine (demande du propriétaire du 21/11/2026), dans la rubrique Recharges :
-//   - l'argent entré : les recharges confirmées, par moyen de paiement ;
+//   - l'argent entré : les recharges confirmées et les repas payés à la caisse (espèces, Mobile Money), par moyen ;
 //   - les repas vendus : un repas est gagné quand il est servi, ou quand son jour passe sans qu'on vienne le chercher ;
-//     payé pour un jour à venir, il ne l'est pas encore ;
+//     payé pour un jour à venir, il ne l'est pas encore ; réservé sans payer et jamais retiré, il ne l'est jamais ;
 //   - les dépenses : ce que la cantine paie, noté à la main ;
 //   - le bilan : gagné moins dépensé ;
 //   - les soldes : l'argent des élèves en dépôt, qui leur appartient tant qu'ils n'ont pas mangé.
@@ -81,7 +81,12 @@ export const MOYENS_RECHARGE: { id: string; libelle: string }[] = [
   { id: "cartflox", libelle: "Mobile Money (Cartflox)" },
   { id: "especes", libelle: "Espèces au comptoir" },
   { id: "pispi", libelle: "QR universel" },
+  // Les repas payés à la caisse, au scan (21/11/2026) : cet argent ne passe pas par le solde d'un élève.
+  { id: "repas_especes", libelle: "Repas payés en espèces" },
+  { id: "repas_mobile_money", libelle: "Repas payés par Mobile Money" },
 ];
+/** Vrai pour un repas payé à la caisse, pas une recharge : l'écran dit « repas » au lieu de « recharge ». */
+export const estRepasPayeALaCaisse = (moyen: string) => moyen.startsWith("repas_");
 const libelleMoyen = (id: string) => MOYENS_RECHARGE.find((m) => m.id === id)?.libelle ?? "Autre";
 
 /** Une recharge confirmée : `confirmeeLe` en ISO (Abidjan vit à l'heure UTC : les dix premiers caractères sont le jour). */
@@ -105,18 +110,25 @@ export function encaissements(recharges: RechargeCompta[], p: Periode) {
 
 /* ── Les repas vendus ──────────────────────────────────────────────────────── */
 
-/** Un repas réservé : son jour, son prix payé, son état (reservee, servie, annulee) et son plat. */
-export type RepasCompta = { jour: string; prix: number; etat: string; plat: string };
+/**
+ * Un repas réservé : son jour, son prix, son état (reservee, servie, annulee) et son plat. `paiement` : « a_payer »
+ * tant que rien n'est encaissé (src/lib/reservation.ts) ; absent ou autre, il est payé.
+ */
+export type RepasCompta = { jour: string; prix: number; etat: string; plat: string; paiement?: string };
 
 const somme = (repas: RepasCompta[]) => repas.reduce((s, r) => s + r.prix, 0);
 
 export function ventes(repas: RepasCompta[], p: Periode, aujourdhui: string) {
   const dans = repas.filter((r) => r.jour >= p.debut && r.jour <= p.fin);
   const servis = dans.filter((r) => r.etat === "servie");
-  // Réservé et jamais retiré, son jour passé : la cuisine l'a préparé, il n'est pas remboursé, il est gagné.
-  const nonRetires = dans.filter((r) => r.etat === "reservee" && r.jour < aujourdhui);
+  const paye = (r: RepasCompta) => r.paiement !== "a_payer";
+  // Payé et jamais retiré, son jour passé : la cuisine l'a préparé, il n'est pas remboursé, il est gagné.
+  const nonRetires = dans.filter((r) => r.etat === "reservee" && r.jour < aujourdhui && paye(r));
   // Payé, mais pour aujourd'hui (pas encore servi) ou un jour à venir : pas encore gagné.
-  const aVenir = dans.filter((r) => r.etat === "reservee" && r.jour >= aujourdhui);
+  const aVenir = dans.filter((r) => r.etat === "reservee" && r.jour >= aujourdhui && paye(r));
+  // Réservé sans payer : à encaisser au comptoir s'il vient ; jamais retiré, rien n'a été encaissé, il est perdu.
+  const aEncaisser = dans.filter((r) => r.etat === "reservee" && r.jour >= aujourdhui && !paye(r));
+  const jamaisPayes = dans.filter((r) => r.etat === "reservee" && r.jour < aujourdhui && !paye(r));
   const annules = dans.filter((r) => r.etat === "annulee");
   const gagnes = [...servis, ...nonRetires];
   const parPlat = [...new Set(gagnes.map((r) => r.plat))]
@@ -128,6 +140,8 @@ export function ventes(repas: RepasCompta[], p: Periode, aujourdhui: string) {
     servis: { nombre: servis.length, montant: somme(servis) },
     nonRetires: { nombre: nonRetires.length, montant: somme(nonRetires) },
     aVenir: { nombre: aVenir.length, montant: somme(aVenir) },
+    aEncaisser: { nombre: aEncaisser.length, montant: somme(aEncaisser) },
+    jamaisPayes: { nombre: jamaisPayes.length, montant: somme(jamaisPayes) },
     annules: { nombre: annules.length, montant: somme(annules) },
     parPlat,
     parJour,

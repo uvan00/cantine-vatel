@@ -15,7 +15,7 @@ import type { CleJour, VueCommandes, VueConvive, VuePlatCommande } from "@/lib/d
 import { nombre, pluriel } from "@/lib/format";
 import { jourLong } from "@/lib/jours";
 import { creneauLisible } from "@/lib/creneaux";
-import { heureH } from "@/lib/reservation";
+import { FILES, estimationLisible, heureH, lireFile, type FileComptoir } from "@/lib/reservation";
 import { parRepas, poidsLisible } from "@/lib/restes";
 import { servirTicket, type ReponseService } from "../actions";
 import { FenetreReserverPour, FenetreRestes } from "./fenetres";
@@ -36,7 +36,13 @@ function phraseCloture(d: VueCommandes) {
   return d.cloturee ? `Réservations closes depuis ${d.clotureLisible} : ces nombres ne bougent plus` : `Réservations ouvertes jusqu'à ${d.clotureLisible}`;
 }
 
-export function CommandesClient({ initial, encart = null }: { initial: VueCommandes; /** Sous les chiffres : les demandes hors délai. */ encart?: React.ReactNode }) {
+export function CommandesClient({ initial, encart = null, estimation }: {
+  initial: VueCommandes;
+  /** Sous les chiffres : les demandes hors délai. */
+  encart?: React.ReactNode;
+  /** Les repas sans réservation à prévoir en plus, d'après les derniers services (src/lib/donnees-comptoir.ts). */
+  estimation: { estimation: number | null; services: number };
+}) {
   const [donnees, recharger] = useDirect<VueCommandes>(`/api/admin/commandes?jour=${initial.cle}`, initial, 3000);
   const router = useRouter();
   const [choisi, setChoisi] = useState<CleJour>(initial.cle);
@@ -46,6 +52,13 @@ export function CommandesClient({ initial, encart = null }: { initial: VueComman
   const [reserverPour, setReserverPour] = useState(false);
   const [aPeser, setAPeser] = useState<string | null>(null);
   const aujourdhui = donnees.cle === "aujourdhui";
+  // Les trois files du comptoir, comptées sur les repas de ce jour (la liste se relit toutes les 3 secondes).
+  const files = Object.fromEntries(FILES.map((f) => [f.id, { reserves: 0, servis: 0 }])) as Record<FileComptoir, { reserves: number; servis: number }>;
+  for (const c of donnees.plats.flatMap((p) => p.convives)) {
+    const f = files[lireFile(c.file)];
+    f.reserves += 1;
+    if (c.etat === "servie") f.servis += 1;
+  }
   const platAPeser = donnees.plats.find((p) => p.id === aPeser) ?? null;
 
   const changer = (cle: CleJour) => {
@@ -96,6 +109,26 @@ export function CommandesClient({ initial, encart = null }: { initial: VueComman
             <Clock className="mt-0.5 size-4 shrink-0" strokeWidth={1.8} />
             <span>{phraseCloture(donnees)}</span>
           </p>
+          {/* Les trois files : qui est attendu dans chacune, et les repas sans réservation à prévoir en plus. */}
+          <ul aria-label="Les trois files du comptoir" className="grid grid-cols-1 gap-2 @2xl/page:grid-cols-3">
+            {FILES.map((f) => {
+              const n = files[f.id];
+              const classique = f.id === "classique";
+              return (
+                <li key={f.id} className="rounded-[16px] border border-[color:var(--h-filet)] bg-surface px-4 py-3">
+                  <p className="text-[14px] leading-5 font-semibold text-encre/95">{f.nom}</p>
+                  <p className="text-[13px] leading-5 text-texte-2">{f.pour}</p>
+                  <p className="chiffres mt-2 text-[14px] leading-5 text-encre/90">
+                    {classique
+                      ? <>{aujourdhui && <><span className="text-[20px] leading-7 font-semibold text-encre/95">{nombre(n.servis)}</span> {n.servis > 1 ? "servis" : "servi"}, </>}{estimationLisible(estimation.estimation, estimation.services)}</>
+                      : aujourdhui
+                        ? <><span className="text-[20px] leading-7 font-semibold text-encre/95">{nombre(n.reserves - n.servis)}</span> à servir, {nombre(n.servis)} {n.servis > 1 ? "servis" : "servi"}</>
+                        : <><span className="text-[20px] leading-7 font-semibold text-encre/95">{nombre(n.reserves)}</span> {n.reserves > 1 ? "réservés" : "réservé"}</>}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
           {donnees.creneaux.length > 0 && (
             <ul aria-label="Passages par créneau" className="chiffres flex flex-wrap gap-2 text-[13px] leading-5">
               {donnees.creneaux.map((c) => (
@@ -207,8 +240,12 @@ function LigneConvive({ convive, aujourdhui, apresService }: {
         <p className="flex min-w-0 items-baseline gap-3 text-[13px] leading-5 text-texte-2">
           <span className="shrink-0 font-mono text-encre/80">{convive.code}</span>
           <span className="truncate">{convive.groupe}</span>
+          <span className="shrink-0">{FILES.find((f) => f.id === lireFile(convive.file))?.nom.replace("File ", "")}{convive.paiement === "a_payer" && convive.etat !== "servie" ? ", à payer" : ""}</span>
         </p>
-        {aujourdhui && convive.etat === "reservee" ? (
+        {aujourdhui && convive.etat === "reservee" && convive.paiement === "a_payer" ? (
+          // À payer : tout passe par le scanner, qui ouvre la caisse sur ce ticket.
+          <Link href={`/admin/scanner?cle=${convive.code}`} className="hb hb--teinte hb--petit" aria-label={`Encaisser ${convive.nom}`}>Encaisser</Link>
+        ) : aujourdhui && convive.etat === "reservee" ? (
           <SBtn size="sm" variant="tonal" tone="secondary" disabled={enCours} onClick={servir} aria-label={`Servir ${convive.nom}`}>{enCours ? "Un instant" : "Servir"}</SBtn>
         ) : convive.serviLe ? (
           <span className="chiffres shrink-0 text-[13px] leading-5 text-texte-2">à {heureH(convive.serviLe)}</span>

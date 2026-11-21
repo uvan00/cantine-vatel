@@ -21,7 +21,7 @@ export default async function PageBilan({ searchParams }: { searchParams: Promis
   const v = ventes(donnees.repas, p, aujourdhui);
   const d = depensesDe(donnees.depenses, p);
   const b = bilan(v.gagne, d.total);
-  const entre = encaissements(donnees.recharges, p).total;
+  const entre = encaissements(donnees.entrees, p).total;
   const enDepot = soldes(comptes).total;
   const gagnePositif = b.resultat >= 0;
   return (

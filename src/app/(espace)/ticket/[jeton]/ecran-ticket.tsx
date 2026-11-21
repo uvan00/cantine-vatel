@@ -34,7 +34,8 @@ export type TicketAffiche = DonneesTicket & {
   mot: string;
 };
 
-export type EtatTicket = { etat: string; serviLe: string | null };
+/** `paiement` : relu en direct aussi, pour qu'un ticket payé au comptoir le dise dès qu'il est servi. */
+export type EtatTicket = { etat: string; serviLe: string | null; paiement?: string };
 
 /** Sur l'ardoise, l'encre et les gris du kit passent au clair, comme à l'accueil. */
 const SUR_ARDOISE = { "--sn-on": "255 255 255", "--h-texte-2": "rgb(255 255 255 / 0.7)", "--h-survol": "rgb(255 255 255 / 0.12)" } as React.CSSProperties;
@@ -48,11 +49,15 @@ export function TicketEnDirect({ ticket, initial }: { ticket: TicketAffiche; ini
 export function EcranTicket({ ticket, etat, tombe = false }: { ticket: TicketAffiche; etat: EtatTicket; tombe?: boolean }) {
   const annulation = useAnnulation();
   const affiche = etatAffiche({ etat: etat.etat, jour: ticket.jour }, ticket.instant);
+  const paiement = etat.paiement ?? ticket.paiement;
+  // Réservé sans payer : la caisse encaisse au scan (file réservation), et rien n'est à rendre si on annule.
+  const aPayer = paiement === "a_payer";
 
   const sousTitre =
     affiche === "servie" ? (etat.serviLe ? `Servi à ${heureH(etat.serviLe)}, bon appétit` : "Servi, bon appétit")
     : affiche === "annulee" ? "Ce repas est annulé"
     : affiche === "non_retiree" ? "Ce repas n'a pas été retiré"
+    : ticket.quand === "aujourd'hui" && aPayer ? `File réservation : tu paies ${fcfa(ticket.prix)} au comptoir, et c'est servi`
     : ticket.quand === "aujourd'hui" ? (ticket.creneau ? `Passage à ${creneauLisible(ticket.creneau)} : un scan au comptoir, et c'est servi` : "Un scan au comptoir, et c'est servi")
     : `À montrer au comptoir ${ticket.quand}${ticket.creneau ? `, passage à ${creneauLisible(ticket.creneau)}` : ""}`;
 
@@ -61,7 +66,7 @@ export function EcranTicket({ ticket, etat, tombe = false }: { ticket: TicketAff
       <div className="ardoise pb-10" style={SUR_ARDOISE}>
         <EnTeteEspace titre="Ton ticket" sousTitre={<span className="chiffres" aria-live="polite">{sousTitre}</span>} retour={{ href: "/ticket", libelle: "Tes tickets" }} />
         <div className="px-4">
-          <TicketRepas ticket={ticket} qr={ticket.qr} etat={affiche} serviLe={etat.serviLe} tombe={tombe} />
+          <TicketRepas ticket={{ ...ticket, paiement }} qr={ticket.qr} etat={affiche} serviLe={etat.serviLe} tombe={tombe} />
         </div>
       </div>
 
@@ -71,9 +76,11 @@ export function EcranTicket({ ticket, etat, tombe = false }: { ticket: TicketAff
         </div>
         {affiche === "reservee" && (ticket.refusAnnulation === null ? (
           <div>
-            <SBtn variant="outlined" tone="error" block disabled={annulation.enCours} onClick={() => annulation.annuler(ticket)}>Annuler ce repas</SBtn>
+            <SBtn variant="outlined" tone="error" block disabled={annulation.enCours} onClick={() => annulation.annuler({ ...ticket, paiement })}>Annuler ce repas</SBtn>
             <p className="chiffres mt-3 text-center text-[14px] leading-5 text-texte-2">
-              Possible jusqu&apos;à {ticket.clotureLisible} le jour du repas : {fcfa(ticket.prix)} reviennent sur ton solde tout de suite
+              {aPayer
+                ? <>Possible jusqu&apos;à {ticket.clotureLisible} le jour du repas. Après, la cuisine l&apos;a compté : viens le chercher</>
+                : <>Possible jusqu&apos;à {ticket.clotureLisible} le jour du repas : {fcfa(ticket.prix)} reviennent sur ton solde tout de suite</>}
             </p>
           </div>
         ) : (
@@ -82,12 +89,16 @@ export function EcranTicket({ ticket, etat, tombe = false }: { ticket: TicketAff
         {affiche === "servie" && <NoterRepas reservationId={ticket.id} plat={ticket.plat} note={ticket.note} mot={ticket.mot} forme="bouton" />}
         {affiche === "annulee" && (
           <>
-            <p className="chiffres text-center text-[14px] leading-5 text-texte-2">{fcfa(ticket.prix)} sont revenus sur ton solde</p>
+            <p className="chiffres text-center text-[14px] leading-5 text-texte-2">{aPayer ? "Tu n'avais rien payé : il n'y a rien à rendre" : <>{fcfa(ticket.prix)} sont revenus sur ton solde</>}</p>
             <SBtnLink href="/menu" tone="secondary" block>Voir le menu</SBtnLink>
           </>
         )}
         {affiche === "non_retiree" && (
-          <p className="text-center text-[14px] leading-5 text-texte-2">Personne n&apos;est passé le chercher. Il n&apos;est pas remboursé : la cuisine l&apos;avait préparé pour toi.</p>
+          <p className="text-center text-[14px] leading-5 text-texte-2">
+            {aPayer
+              ? <>Personne n&apos;est passé le chercher, alors que la cuisine l&apos;avait préparé pour toi.</>
+              : <>Personne n&apos;est passé le chercher. Il n&apos;est pas remboursé : la cuisine l&apos;avait préparé pour toi.</>}
+          </p>
         )}
       </div>
       {annulation.fenetre}
