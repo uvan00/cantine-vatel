@@ -1,6 +1,7 @@
 "use client";
 
 import { EnTeteEspace } from "@/components/coque-espace";
+import { creneauLisible } from "@/lib/creneaux";
 import { AlertTriangle } from "@/components/icons";
 import { SAlert, SBtn, SBtnLink } from "@/components/sneat";
 import { TicketRepas, type DonneesTicket } from "@/components/ticket-repas";
@@ -26,6 +27,8 @@ export type TicketAffiche = DonneesTicket & {
   /** Pourquoi ce repas ne s'annule pas (peutAnnuler de src/lib/reservation.ts) ; null : il s'annule encore. */
   refusAnnulation: string | null;
   clotureLisible: string;
+  /** L'heure de passage choisie (« 12:15 ») ; null sans créneaux. */
+  creneau: string | null;
   /** La note déjà donnée à ce repas, s'il a été noté. */
   note: number | null;
   mot: string;
@@ -50,8 +53,8 @@ export function EcranTicket({ ticket, etat, tombe = false }: { ticket: TicketAff
     affiche === "servie" ? (etat.serviLe ? `Servi à ${heureH(etat.serviLe)}, bon appétit` : "Servi, bon appétit")
     : affiche === "annulee" ? "Ce repas est annulé"
     : affiche === "non_retiree" ? "Ce repas n'a pas été retiré"
-    : ticket.quand === "aujourd'hui" ? "Un scan au comptoir, et c'est servi"
-    : `À montrer au comptoir ${ticket.quand}`;
+    : ticket.quand === "aujourd'hui" ? (ticket.creneau ? `Passage à ${creneauLisible(ticket.creneau)} : un scan au comptoir, et c'est servi` : "Un scan au comptoir, et c'est servi")
+    : `À montrer au comptoir ${ticket.quand}${ticket.creneau ? `, passage à ${creneauLisible(ticket.creneau)}` : ""}`;
 
   return (
     <main>

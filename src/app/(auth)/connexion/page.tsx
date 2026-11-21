@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { EssayerComme } from "@/components/essayer-comme";
 import { modeDemo } from "@/lib/demo";
+import { Bascule } from "../bascule";
 import { FormulaireConnexion } from "../formulaires";
 
 export const metadata: Metadata = { title: "Connexion" };
@@ -9,13 +10,13 @@ export const metadata: Metadata = { title: "Connexion" };
 export default function PageConnexion() {
   return (
     <>
-      <h1 className="text-[24px] leading-8">Connexion</h1>
-      <p className="mt-1 mb-6 text-[15px] leading-5 text-texte-2">Ton e-mail, ton mot de passe, et à table</p>
+      <Bascule actif="connexion" />
+      <h1 className="mb-8 text-[36px] leading-[44px] font-semibold text-encre max-lg:sr-only">Connexion</h1>
       <FormulaireConnexion />
-      <p className="mt-6 text-center text-[15px] leading-5 text-texte-2">
-        Pas encore de compte ? <Link href="/inscription" className="font-medium text-marque-texte underline-offset-4 hover:underline">Créer un compte</Link>
+      <p className="mt-6 hidden text-[15px] leading-6 text-texte-2 lg:block">
+        Pas encore de compte ? <Link href="/inscription" className="font-medium text-encre underline-offset-4 hover:underline">Créer un compte</Link>
       </p>
-      {modeDemo() && <EssayerComme className="mt-6 border-t border-[color:var(--h-filet)] pt-6" />}
+      {modeDemo() && <EssayerComme className="mt-8 lg:mt-10" />}
     </>
   );
 }

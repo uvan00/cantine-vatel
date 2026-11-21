@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { EtiquettesAliments } from "@/components/allergene";
+import { Avatar } from "@/components/avatar";
 import { BandeauSoldeBas } from "@/components/bandeau-solde-bas";
 import { EnTeteEspace } from "@/components/coque-espace";
 import { EtatRepas } from "@/components/etat-repas";
@@ -7,23 +9,38 @@ import { enfantsDuParent, rechargesEnAttenteDe, semaineDesEnfants, type Enfant, 
 import { fcfa } from "@/lib/format";
 import { maintenant } from "@/lib/horloge";
 import { jourCourt, jourIso } from "@/lib/jours";
+import { etiquettesDuProfil } from "@/lib/profil-alimentaire";
 import { exiger, prenomDe } from "@/lib/session";
 import { soldeBas } from "@/lib/solde";
 import { RechargesEnAttente } from "../recharger/en-attente";
 import { AucunEnfant, RelierEnfant } from "./relier-enfant";
+import { Transfert } from "./transfert";
 
 export const metadata: Metadata = { title: "Mes enfants" };
 
-// L'accueil du parent : une carte par enfant (son solde, l'alerte de solde bas, ses repas de la semaine en mots), les
-// recharges qui attendent la cantine, et de quoi relier un enfant avec son code famille.
+// L'accueil du parent : une carte par enfant (ce qu'il ne mange pas, son solde, l'alerte de solde bas, ses repas de la semaine en mots), de
+// quoi faire passer de l'argent d'un enfant à l'autre, les recharges qui attendent la cantine, et de quoi relier un
+// enfant avec son code famille.
 
 function CarteEnfant({ enfant, semaine, aujourdhui }: { enfant: Enfant; semaine: JourDeSemaine[]; aujourdhui: string }) {
   const recharger = `/recharger?pour=${enfant.id}`;
   const bas = soldeBas(enfant.solde, enfant.seuil);
+  const neMangePas = etiquettesDuProfil(enfant);
   return (
     <article className="rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-4">
-      <h2 className="text-[17px] leading-6">{enfant.nom}</h2>
-      {enfant.classe && <p className="text-[14px] leading-5 text-texte-2">{enfant.classe}</p>}
+      <div className="flex items-center gap-3">
+        <Avatar id={enfant.id} nom={enfant.nom} photo={enfant.photo} taille={48} />
+        <div className="min-w-0">
+          <h2 className="truncate text-[17px] leading-6">{enfant.nom}</h2>
+          {enfant.classe && <p className="text-[14px] leading-5 text-texte-2">{enfant.classe}</p>}
+        </div>
+      </div>
+      {neMangePas.length > 0 && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-[14px] leading-5 text-encre/90">
+          <span className="text-texte-2">Ne mange pas</span>
+          <EtiquettesAliments etiquettes={neMangePas} taille={20} />
+        </p>
+      )}
 
       <p className="mt-4 text-[14px] leading-5 text-texte-2">Son solde</p>
       <p className="chiffres mt-1 text-[32px] leading-10 font-medium text-encre/95">{fcfa(enfant.solde)}</p>
@@ -72,6 +89,14 @@ export default async function PageParent() {
         <div className="space-y-4 px-4">
           {enfants.map((e) => <CarteEnfant key={e.id} enfant={e} semaine={semaines.get(e.id) ?? []} aujourdhui={jourIso(instant)} />)}
         </div>
+      )}
+
+      {enfants.length > 1 && (
+        <section className="mt-8 px-4">
+          <STitreSection>Faire passer de l&apos;argent</STitreSection>
+          <p className="mt-2 text-[14px] leading-5 text-texte-2">D&apos;un enfant à l&apos;autre, sans nouvelle recharge</p>
+          <div className="mt-3"><Transfert enfants={enfants.map((e) => ({ id: e.id, prenom: prenomDe(e.nom), solde: e.solde }))} /></div>
+        </section>
       )}
 
       {enAttente.length > 0 && (

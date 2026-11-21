@@ -23,7 +23,7 @@ export async function connecter(_avant: EtatFormulaire, f: FormData): Promise<Et
   const saisi = { email: texte(f, "email"), motDePasse: String(f.get("motDePasse") ?? "") };
   const v = Connexion.safeParse(saisi);
   if (!v.success) return { erreur: v.error.issues[0].message, champs: { email: saisi.email } };
-  const r = await seConnecter(v.data.email, v.data.motDePasse);
+  const r = await seConnecter(v.data.email, v.data.motDePasse, f.get("resterConnecte") === "on");
   if (!r.ok) return { erreur: r.erreur, champs: { email: saisi.email } };
   redirect(accueilDe(r.role));
 }

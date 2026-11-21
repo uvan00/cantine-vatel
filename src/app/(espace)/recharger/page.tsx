@@ -21,8 +21,8 @@ export default async function PageRecharger({ searchParams }: { searchParams: Pr
 
   const [comptes, enAttente] = await Promise.all([
     parent
-      ? enfantsDuParent(m.id).then((enfants) => enfants.map((e): CompteARecharger => ({ id: e.id, nom: e.nom, prenom: prenomDe(e.nom), classe: e.classe, solde: e.solde })))
-      : soldeDuCompte(m.id).then((solde): CompteARecharger[] => [{ id: m.id, nom: m.nom, prenom: prenomDe(m.nom), classe: "", solde }]),
+      ? enfantsDuParent(m.id).then((enfants) => enfants.map((e): CompteARecharger => ({ id: e.id, nom: e.nom, prenom: prenomDe(e.nom), classe: e.classe, solde: e.solde, photo: e.photo })))
+      : soldeDuCompte(m.id).then((solde): CompteARecharger[] => [{ id: m.id, nom: m.nom, prenom: prenomDe(m.nom), classe: "", solde, photo: m.photo }]),
     rechargesEnAttenteDe(m.id),
   ]);
   // On ne présélectionne qu'un compte que cette personne peut recharger : un identifiant d'ailleurs est ignoré.
@@ -32,12 +32,12 @@ export default async function PageRecharger({ searchParams }: { searchParams: Pr
     <>
       <EnTeteEspace titre="Recharger" retour={parent ? undefined : { href: "/compte", libelle: "Compte" }}
         sousTitre={comptes.length > 0 ? (configCartflox()
-          ? "Choisis le montant, puis paie avec ton Mobile Money : le compte est crédité dès que le paiement passe"
-          : "Choisis le montant, la cantine confirme dès qu'elle voit ton paiement") : undefined} />
+          ? "Le compte est crédité dès que le paiement passe"
+          : "La cantine confirme dès qu'elle voit ton paiement") : undefined} />
 
       {comptes.length === 0 ? <AucunCompte /> : (
         <section className="px-4">
-          <FormulaireRecharge key={choisi} comptes={comptes} choisi={choisi} pourSoi={!parent} />
+          <FormulaireRecharge key={choisi} comptes={comptes} choisi={choisi} />
         </section>
       )}
 

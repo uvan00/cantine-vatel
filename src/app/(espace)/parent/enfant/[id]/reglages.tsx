@@ -2,18 +2,19 @@
 
 import { useState, useTransition } from "react";
 import { Check } from "@/components/icons";
-import { SAlert, SBtn, SCheckbox, SField, SInput } from "@/components/sneat";
+import { TuileAliment } from "@/components/allergene";
+import { SAlert, SBtn, SField, SInput } from "@/components/sneat";
 import { ALLERGENES, REGIMES } from "@/lib/listes";
 import { MARQUE } from "@/lib/marque";
+import { RepasEnCause } from "@/app/(espace)/compte/reglages";
 import { reglerProfil, reglerSeuil, type Reponse } from "../../actions";
 
-// Ce que le parent règle pour son enfant : le profil alimentaire (cases à cocher) et le seuil d'alerte. Mêmes blocs que
+// Ce que le parent règle pour son enfant : le profil alimentaire (tuiles à cocher, un dessin et un nom) et le seuil d'alerte. Mêmes blocs que
 // dans le compte du convive, pour que les deux écrans se lisent pareil. Le serveur revérifie tout
 // (src/app/(espace)/parent/actions.ts) : ici, on ne fait que saisir.
 
 const CARTE = "rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-4";
 const LEGENDE = "text-[14px] leading-5 font-semibold text-encre/95";
-const majuscule = (texte: string) => texte.charAt(0).toUpperCase() + texte.slice(1);
 
 /** Le bouton d'un bloc et ce qui s'est passé : « C'est noté », ou la raison du refus. */
 function Enregistrer({ enCours, reponse }: { enCours: boolean; reponse: Reponse | null }) {
@@ -47,28 +48,25 @@ export function ProfilAlimentaire({ enfantId, allergenes, regimes }: { enfantId:
     <form className={CARTE} onSubmit={(e) => { e.preventDefault(); enregistrer(); }} noValidate>
       <fieldset>
         <legend className={LEGENDE}>Allergènes</legend>
-        <div className="mt-1 grid grid-cols-2 gap-x-4">
+        <div className="mt-2 grid auto-rows-fr grid-cols-3 gap-2">
           {ALLERGENES.map((a) => (
-            <div key={a.id} className="[&>label]:h-11">
-              <SCheckbox checked={coches.allergenes.includes(a.id)} onChange={(oui) => basculer("allergenes", a.id, oui)} label={majuscule(a.nom)} />
-            </div>
+            <TuileAliment key={a.id} etiquette={a} coche={coches.allergenes.includes(a.id)} onChange={(oui) => basculer("allergenes", a.id, oui)} />
           ))}
         </div>
       </fieldset>
-      <fieldset className="mt-3">
+      <fieldset className="mt-4">
         <legend className={LEGENDE}>Régimes</legend>
-        <div className="mt-1 grid grid-cols-2 gap-x-4">
+        <div className="mt-2 grid auto-rows-fr grid-cols-3 gap-2">
           {REGIMES.map((r) => (
-            <div key={r.id} className="[&>label]:h-11">
-              <SCheckbox checked={coches.regimes.includes(r.id)} onChange={(oui) => basculer("regimes", r.id, oui)} label={majuscule(r.nom)} />
-            </div>
+            <TuileAliment key={r.id} etiquette={r} coche={coches.regimes.includes(r.id)} onChange={(oui) => basculer("regimes", r.id, oui)} />
           ))}
         </div>
       </fieldset>
       <p className="mt-3 text-[14px] leading-5 text-texte-2">
-        D&apos;après ce que la cantine a déclaré : {MARQUE.nom} répète sa liste, elle ne garantit pas la composition des plats.
+        D&apos;après ce que la cantine a déclaré : {MARQUE.nom} répète sa liste, elle ne garantit pas la composition des plats
       </p>
       <Enregistrer enCours={enCours} reponse={reponse} />
+      {reponse?.ok && <RepasEnCause repas={reponse.repasEnCause ?? []} pour="lui" />}
     </form>
   );
 }

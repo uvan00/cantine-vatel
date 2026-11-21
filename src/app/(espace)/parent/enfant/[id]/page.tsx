@@ -1,23 +1,27 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BandeauSoldeBas } from "@/components/bandeau-solde-bas";
+import { ChoixAvatar } from "@/components/choix-avatar";
 import { EnTeteEspace } from "@/components/coque-espace";
 import { EtatRepas } from "@/components/etat-repas";
+import { PlafondSemaine } from "@/components/plafond-semaine";
 import { SBtnLink, STitreSection } from "@/components/sneat";
-import { estParentDe } from "@/lib/donnees";
+import { estParentDe, plafondDe } from "@/lib/donnees";
 import { Identifiant, JOURS_PASSES, ficheEnfant, type LigneHistorique, type RepasEnfant } from "@/lib/donnees-parent";
-import { dateLongue, fcfa } from "@/lib/format";
+import { dateLongue, de, fcfa } from "@/lib/format";
 import { maintenant } from "@/lib/horloge";
 import { jourIso, jourLong } from "@/lib/jours";
 import { heureH } from "@/lib/reservation";
 import { exiger, prenomDe } from "@/lib/session";
 import { soldeBas } from "@/lib/solde";
+import { LienCarte } from "../../../carte/lien-carte";
+import { reglerPlafondEnfant } from "../../actions";
 import { ProfilAlimentaire, SeuilAlerte } from "./reglages";
 
 export const metadata: Metadata = { title: "Mon enfant" };
 
 // La page d'un enfant, pour son parent seulement : son solde, ses repas (14 derniers jours et jours à venir), son
-// profil alimentaire et son seuil d'alerte à régler, ses 20 derniers mouvements. Pour tout autre parent : introuvable.
+// profil alimentaire, son seuil d'alerte et son plafond de la semaine à régler, ses 20 derniers mouvements. Pour tout autre parent : introuvable.
 
 const CARTE = "rounded-[16px] border border-[color:var(--h-filet)] bg-surface";
 const LISTE = `divide-y divide-[color:var(--h-filet)] ${CARTE}`;
@@ -76,7 +80,7 @@ export default async function PageEnfant({ params }: { params: Promise<{ id: str
   const id = Identifiant.safeParse((await params).id);
   if (!id.success || !(await estParentDe(m.id, id.data))) notFound();
   const instant = maintenant();
-  const fiche = await ficheEnfant(id.data, instant);
+  const [fiche, plafond] = await Promise.all([ficheEnfant(id.data, instant), plafondDe(id.data, jourIso(instant))]);
   if (!fiche) notFound();
 
   const { nom, profil, solde, repas, historique } = fiche;
@@ -91,6 +95,7 @@ export default async function PageEnfant({ params }: { params: Promise<{ id: str
   return (
     <>
       <EnTeteEspace titre={nom} retour={{ href: "/parent", libelle: "Mes enfants" }}
+        action={<ChoixAvatar id={id.data} nom={nom} photo={fiche.photo} titre={`L'avatar ${de(prenom)}`} sousTitre={`Touche celui qui ressemble le plus à ${prenom}`} />}
         sousTitre={[profil.genre === "employe" ? "Employé" : "Élève", profil.classe].filter(Boolean).join(", ")} />
 
       <section className="space-y-4 px-4">
@@ -101,6 +106,7 @@ export default async function PageEnfant({ params }: { params: Promise<{ id: str
           {!bas && <SBtnLink href={recharger} tone="secondary" block className="mt-4">Recharger</SBtnLink>}
         </div>
         <BandeauSoldeBas solde={solde} seuil={profil.seuilAlerte} prenom={prenom} href={recharger} />
+        <LienCarte href={`/carte?pour=${id.data}`} titre={`La carte de cantine ${de(prenom)}`} phrase="À imprimer pour un enfant sans téléphone : au comptoir, elle vaut son ticket" />
       </section>
 
       <section className="mt-8 px-4">
@@ -118,6 +124,13 @@ export default async function PageEnfant({ params }: { params: Promise<{ id: str
       <section className="mt-8 px-4">
         <STitreSection>Seuil d&apos;alerte</STitreSection>
         <div className="mt-4"><SeuilAlerte enfantId={id.data} seuil={profil.seuilAlerte} prenom={prenom} /></div>
+      </section>
+
+      <section className="mt-8 px-4">
+        <STitreSection>Plafond de la semaine</STitreSection>
+        <div className="mt-4">
+          <PlafondSemaine plafond={plafond.plafond} depense={plafond.depense} qui={`${prenom} a réservé`} enregistrer={reglerPlafondEnfant.bind(null, id.data)} />
+        </div>
       </section>
 
       <section className="mt-8 px-4">

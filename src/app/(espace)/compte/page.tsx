@@ -2,18 +2,23 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { deconnexion } from "@/app/actions";
 import { BandeauSoldeBas } from "@/components/bandeau-solde-bas";
+import { ChoixAvatar } from "@/components/choix-avatar";
 import { EnTeteEspace } from "@/components/coque-espace";
+import { PlafondSemaine } from "@/components/plafond-semaine";
 import { STitreSection } from "@/components/sneat";
-import { profilDe, soldeDuCompte } from "@/lib/donnees";
+import { parentsDe, plafondDe, profilDe, soldeDuCompte } from "@/lib/donnees";
 import { journalDe } from "@/lib/donnees-convive";
 import { dateLongue, fcfa } from "@/lib/format";
+import { maintenant } from "@/lib/horloge";
+import { jourIso } from "@/lib/jours";
 import { heureH } from "@/lib/reservation";
 import { exiger } from "@/lib/session";
 import { SEUIL_ALERTE_DEFAUT, soldeBas } from "@/lib/solde";
-import { CodeFamille, ProfilAlimentaire, SeuilAlerte } from "./reglages";
+import { enregistrerPlafond } from "./actions";
+import { ProfilAlimentaire, RelierParent, SeuilAlerte } from "./reglages";
 
-// Le compte du convive : son solde en grand, ce qu'il ne mange pas, son seuil d'alerte, le code à donner à son parent,
-// et son journal. Le solde est la somme du journal (src/lib/solde.ts) : rien d'autre ne le calcule.
+// Le compte du convive : son solde en grand, ce qu'il ne mange pas, son seuil d'alerte, son plafond de la semaine, ses
+// parents reliés (et le code à usage unique pour en relier un), et son journal. Le solde est la somme du journal (src/lib/solde.ts) : rien d'autre ne le calcule.
 export const metadata: Metadata = { title: "Compte" };
 
 /** L'historique montre les 30 derniers mouvements. */
@@ -23,13 +28,14 @@ const CARTE = "rounded-[16px] border border-[color:var(--h-filet)] bg-surface";
 
 export default async function PageCompte() {
   const moi = await exiger("convive");
-  const [solde, profil, journal] = await Promise.all([soldeDuCompte(moi.id), profilDe(moi.id), journalDe(moi.id, MOUVEMENTS)]);
+  const [solde, profil, journal, plafond, parents] = await Promise.all([soldeDuCompte(moi.id), profilDe(moi.id), journalDe(moi.id, MOUVEMENTS), plafondDe(moi.id, jourIso(maintenant())), parentsDe(moi.id)]);
   const seuil = profil?.seuilAlerte ?? SEUIL_ALERTE_DEFAUT;
   const bas = soldeBas(solde, seuil);
 
   return (
     <main>
-      <EnTeteEspace titre="Compte" sousTitre={<>{moi.nom}<span className="block break-all">{moi.email}</span></>} />
+      <EnTeteEspace titre="Compte" sousTitre={<>{moi.nom}<span className="block break-all">{moi.email}</span></>}
+        action={<ChoixAvatar id={moi.id} nom={moi.nom} photo={moi.photo} titre="Choisis ton avatar" sousTitre="Touche celui qui te ressemble le plus" />} />
 
       <div className="space-y-8 px-4">
         <div className="space-y-4">
@@ -55,9 +61,23 @@ export default async function PageCompte() {
               <div className="mt-4"><SeuilAlerte seuil={profil.seuilAlerte} /></div>
             </section>
 
+            {/* Le plafond : réglé ici sans parent relié ; avec un parent, c'est lui qui le règle, et on le montre s'il en a mis un. */}
+            {(!plafond.parParent || plafond.plafond !== null) && (
+              <section>
+                <STitreSection>Plafond de la semaine</STitreSection>
+                {plafond.parParent && plafond.plafond !== null ? (
+                  <p className="chiffres mt-2 text-[15px] leading-5 text-texte-2">
+                    Ton parent a fixé tes repas à {fcfa(plafond.plafond)} par semaine. Cette semaine, tu en as réservé pour {fcfa(plafond.depense)}
+                  </p>
+                ) : (
+                  <div className="mt-4"><PlafondSemaine plafond={plafond.plafond} depense={plafond.depense} qui="Tu as réservé" enregistrer={enregistrerPlafond} /></div>
+                )}
+              </section>
+            )}
+
             <section>
-              <STitreSection>Code famille</STitreSection>
-              <div className="mt-4"><CodeFamille code={profil.codeFamille} /></div>
+              <STitreSection>Relier un parent</STitreSection>
+              <div className="mt-4"><RelierParent parents={parents} /></div>
             </section>
           </>
         )}

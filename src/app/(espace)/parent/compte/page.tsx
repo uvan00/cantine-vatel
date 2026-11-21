@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { deconnexion } from "@/app/actions";
+import { ChoixAvatar } from "@/components/choix-avatar";
 import { EnTeteEspace } from "@/components/coque-espace";
 import { exiger } from "@/lib/session";
 
@@ -11,7 +12,8 @@ export default async function PageCompteParent() {
   const lignes: [string, string][] = [["Nom", m.nom], ["E-mail", m.email]];
   return (
     <>
-      <EnTeteEspace titre="Compte" sousTitre="Ton compte de parent" />
+      <EnTeteEspace titre="Compte" sousTitre="Ton compte de parent"
+        action={<ChoixAvatar id={m.id} nom={m.nom} photo={m.photo} titre="Choisis ton avatar" sousTitre="Touche celui qui te ressemble le plus" />} />
       <div className="space-y-8 px-4">
         <dl className="divide-y divide-[color:var(--h-filet)] rounded-[16px] border border-[color:var(--h-filet)] bg-surface">
           {lignes.map(([libelle, valeur]) => (

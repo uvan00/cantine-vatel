@@ -10,7 +10,7 @@ import { Identifiant, rechargeVisiblePar } from "@/lib/donnees-parent";
 import { fcfa } from "@/lib/format";
 import { annulerRecharge, demanderRecharge } from "@/lib/operations";
 import { qrSvg } from "@/lib/qr";
-import { RECHARGE_MAX, RECHARGE_MIN, montantValable } from "@/lib/recharge";
+import { RECHARGE_MAX, RECHARGE_MIN, montantValable, moyenManuel } from "@/lib/recharge";
 import { autorise, origine } from "@/lib/session";
 
 // Demander une recharge, l'annuler. Le serveur valide le montant (bornes de src/lib/recharge.ts) et vérifie pour qui
@@ -39,7 +39,7 @@ export async function demanderUneRecharge(d: { pour: string; montant: string }):
     if (!enfant.success) return { erreur: "Choisis d'abord pour qui tu recharges" };
     beneficiaireId = enfant.data;
   }
-  const r = await demanderRecharge(m, beneficiaireId, v.data.montant, configCartflox() ? "cartflox" : "pispi");
+  const r = await demanderRecharge(m, beneficiaireId, v.data.montant, configCartflox() ? "cartflox" : moyenManuel());
   if (!r.ok) return { erreur: r.erreur };
   revalidatePath("/recharger");
   redirect(`/recharger/${r.id}`);

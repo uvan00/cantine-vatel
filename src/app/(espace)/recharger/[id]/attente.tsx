@@ -2,61 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { useConfirmation } from "@/components/fenetre";
-import { Check, Copy, Info } from "@/components/icons";
+import { Check, Info } from "@/components/icons";
 import { PaiementMobileMoney } from "@/components/paiement-mobile-money";
 import { QrRecharge } from "@/components/qr-recharge";
-import { SAlert, SBtn, SBtnLink, SChip, type Ton } from "@/components/sneat";
+import { SAlert, SBtn, SBtnLink, SChip } from "@/components/sneat";
 import { useDirect } from "@/hooks/use-direct";
 import type { RechargeEnDirect } from "@/lib/donnees-parent";
 import { fcfa } from "@/lib/format";
-import { LIBELLE_ETAT_RECHARGE, type EtatRecharge } from "@/lib/recharge";
+import { LIBELLE_ETAT_RECHARGE } from "@/lib/recharge";
 import { annulerMaRecharge } from "../actions";
 
-// La page d'une recharge, relue toutes les 3 secondes : tant qu'elle attend, le paiement Mobile Money natif par Cartflox
-// (quand il est branché, comme dans LinkAfr), le QR universel en second choix, et de quoi l'annuler ; dès que le paiement
-// est confirmé, « Reçue » et le nouveau solde. Rien ici ne décide : l'état vient du serveur, qui relit chaque paiement.
-
-const TON: Record<EtatRecharge, Ton> = { en_attente: "warning", confirmee: "success", annulee: "secondary" };
-
-/** Copie par une zone de texte : sans https (le wifi en essai), le presse-papiers moderne n'existe pas. */
-function copierParZone(texte: string) {
-  const zone = document.createElement("textarea");
-  zone.value = texte;
-  zone.style.position = "fixed";
-  zone.style.opacity = "0";
-  document.body.appendChild(zone);
-  zone.select();
-  const fait = document.execCommand("copy");
-  zone.remove();
-  return fait;
-}
-
-/** La référence en chasse fixe, et de quoi la copier (pour la donner à la cantine). */
-function Reference({ reference }: { reference: string }) {
-  const [etat, setEtat] = useState<"repos" | "copiee" | "echec">("repos");
-  const copier = async () => {
-    let fait: boolean;
-    try { await navigator.clipboard.writeText(reference); fait = true; } catch { fait = copierParZone(reference); }
-    setEtat(fait ? "copiee" : "echec");
-    setTimeout(() => setEtat("repos"), 2500);
-  };
-  return (
-    <div className="mt-3">
-      <div className="flex items-center gap-3">
-        <span className="text-[14px] leading-5 text-texte-2">Référence</span>
-        <span className="font-mono text-[18px] leading-6 font-medium text-encre/95 select-all">{reference}</span>
-        <SBtn type="button" size="sm" tone="secondary" variant="outlined" className="px-3" onClick={copier}>
-          {etat === "copiee" ? <Check className="size-4" strokeWidth={1.8} aria-hidden="true" /> : <Copy className="size-4" strokeWidth={1.8} aria-hidden="true" />}
-          {etat === "copiee" ? "Copiée" : "Copier"}
-        </SBtn>
-      </div>
-      <p aria-live="polite" className={`text-[14px] leading-5 text-texte-2 ${etat === "echec" ? "mt-2" : ""}`}>
-        {etat === "copiee" && <span className="sr-only">Référence copiée</span>}
-        {etat === "echec" && "La copie n'a pas marché, recopie-la à la main"}
-      </p>
-    </div>
-  );
-}
+// La page d'une recharge, comme un checkout, relue toutes les 3 secondes : tant qu'elle attend, la liste des moyens de
+// paiement (le Mobile Money par Cartflox quand il est branché, comme dans LinkAfr, et le QR universel en dernière ligne),
+// puis « Annuler la demande », en discret ; dès que le paiement est confirmé, « C'est payé » et le nouveau solde.
+// Le montant, pour qui et la référence sont en tête de page (page.tsx). Rien ici ne décide : l'état vient du serveur,
+// qui relit chaque paiement.
 
 /** Ce que la page sait du paiement en ligne : son mode, jamais une clé. */
 export type CartfloxPage = { mode: "test" | "live" };
@@ -103,84 +63,74 @@ export function Attente({ id, initial, montant, reference, qr, qrAvecMontant, ca
     });
   };
 
+  const qrUniversel = qr ? <QrRecharge svg={qr} reference={reference} montantATaper={qrAvecMontant ? undefined : fcfa(montant)} /> : null;
+
   return (
     <>
-      <section className="px-4">
-        <p className="chiffres text-[40px] leading-[48px] font-medium text-encre/95">{fcfa(montant)}</p>
-        <Reference reference={reference} />
-        <div className="mt-5" aria-live="polite">
-          <SChip tone={TON[etat]}>{etat === "en_attente" && cartflox ? "En attente du paiement" : LIBELLE_ETAT_RECHARGE[etat]}</SChip>
-          <p className="mt-2 text-[15px] leading-6 text-texte-2">
-            {etat === "en_attente" && (cartflox
-              ? "Paie ci-dessous avec ton Mobile Money : dès que le paiement passe, le compte est crédité tout seul."
-              : "La cantine confirme à la main, après avoir vu le paiement arriver. Cette page se met à jour toute seule.")}
-            {etat === "confirmee" && "Le paiement est arrivé, c'est sur le compte"}
-            {etat === "annulee" && "La cantine ne confirmera pas cette demande. Si tu avais déjà payé, passe au comptoir avec la référence."}
-          </p>
-        </div>
-      </section>
+      {/* Toujours là, pour qu'un lecteur d'écran entende la fin : « C'est payé », « Demande annulée ». */}
+      <p className="sr-only" aria-live="polite">{etat === "confirmee" ? "C'est payé, le paiement est arrivé sur le compte" : etat === "annulee" ? "Demande annulée" : ""}</p>
 
       {etat === "en_attente" && cartflox && (
-        <section className="mt-6 px-4" aria-label="Payer avec ton Mobile Money">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-[18px] leading-6">Payer avec ton Mobile Money</h2>
-            {cartflox.mode === "test" && <SChip tone="warning" size="sm">Mode essai, aucun argent réel</SChip>}
-          </div>
-          <p className="mt-1 text-[14px] leading-5 text-texte-2">Avec un numéro de Côte d&apos;Ivoire : la demande de paiement arrive sur ton téléphone</p>
-          <div className="mt-4 rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-4">
-            <PaiementMobileMoney rechargeId={id} montant={montant} onVerifie={relire} />
-          </div>
+        <section className="px-4" aria-label="Payer">
+          {cartflox.mode === "test" && <div className="mb-4"><SChip tone="warning" size="sm">Mode essai, aucun argent réel</SChip></div>}
+          <PaiementMobileMoney rechargeId={id} montant={montant} onVerifie={relire} qr={qrUniversel} />
         </section>
       )}
 
-      {etat === "en_attente" && cartflox && qr && (
-        <details className="group mt-6 px-4">
-          <summary className="flex h-12 cursor-pointer list-none items-center justify-between rounded-[12px] px-4 text-[15px] font-medium text-encre/90 shadow-[inset_0_0_0_1px_var(--h-filet)] transition-colors hover:bg-[color:var(--h-survol)] [&::-webkit-details-marker]:hidden">
-            Payer plutôt avec le QR universel
-            <span aria-hidden="true" className="text-texte-2 transition-transform group-open:rotate-90">›</span>
-          </summary>
-          <div className="mt-4 rounded-[16px] bg-[var(--h-fond-2)] px-4 py-6">
-            <p className="mb-4 text-[14px] leading-5 text-texte-2">Avec le QR universel, la cantine confirme à la main, après avoir vu le paiement arriver</p>
-            <QrRecharge svg={qr} reference={reference} montantATaper={qrAvecMontant ? undefined : fcfa(montant)} />
-          </div>
-        </details>
-      )}
-
       {etat === "en_attente" && !cartflox && (
-        qr ? (
-          <section className="mt-6 bg-[var(--h-fond-2)] px-4 py-6">
-            <QrRecharge svg={qr} reference={reference} montantATaper={qrAvecMontant ? undefined : fcfa(montant)} />
+        <>
+          <section className="px-4" aria-live="polite">
+            <SChip tone="warning">{LIBELLE_ETAT_RECHARGE.en_attente}</SChip>
+            <p className="mt-2 text-[15px] leading-6 text-texte-2">La cantine confirme à la main, après avoir vu le paiement arriver. Cette page se met à jour toute seule.</p>
           </section>
-        ) : (
-          <section className="mt-6 px-4">
-            <SAlert Icon={Info}>
-              La cantine n&apos;a pas encore branché son QR de paiement. Donne la référence <span className="font-mono font-medium">{reference}</span> au comptoir pour payer en espèces.
-            </SAlert>
-          </section>
-        )
+          {qrUniversel ? (
+            <section className="mt-6 bg-[var(--h-fond-2)] px-4 py-6">{qrUniversel}</section>
+          ) : (
+            <section className="mt-6 px-4">
+              <SAlert Icon={Info}>
+                Paie en espèces au comptoir de la cantine en donnant la référence <span className="font-mono font-medium">{reference}</span> : elle crédite le compte tout de suite.
+              </SAlert>
+            </section>
+          )}
+        </>
       )}
 
       {etat === "en_attente" && aMoi && (
-        <section className="mt-6 px-4">
-          {erreur && <div className="mb-3"><SAlert tone="error">{erreur}</SAlert></div>}
-          <SBtn type="button" tone="error" variant="text" block disabled={enCours} onClick={annuler}>{enCours ? "Un instant" : "Annuler cette demande"}</SBtn>
+        <section className="mt-8 px-4 text-center">
+          {erreur && <div className="mb-3 text-left"><SAlert tone="error">{erreur}</SAlert></div>}
+          <SBtn type="button" tone="secondary" variant="text" size="sm" className="text-texte-2" disabled={enCours} onClick={annuler}>
+            {enCours ? "Un instant" : "Annuler la demande"}
+          </SBtn>
         </section>
       )}
 
       {etat === "confirmee" && (
-        <section className="sn-fondu mt-6 px-4">
-          <div className="rounded-[16px] border border-[color:var(--h-filet)] bg-surface p-4">
-            <p className="text-[14px] leading-5 text-texte-2">{soldeDeQui}</p>
-            <p className="chiffres mt-1 text-[36px] leading-[44px] font-medium text-marque-texte">{fcfa(direct.solde)}</p>
+        <section className="sn-fondu px-4">
+          <div className="flex flex-col items-center rounded-[16px] bg-surface px-4 py-8 text-center shadow-[inset_0_0_0_1px_var(--h-filet)]">
+            <span aria-hidden="true" className="grid size-14 place-items-center rounded-full bg-[rgb(var(--h-marque-teinte)/var(--h-teinte))] text-marque-texte">
+              <Check className="size-7" strokeWidth={1.8} />
+            </span>
+            <p className="mt-4 text-[20px] leading-7 font-medium text-encre/95">C&apos;est payé</p>
+            <p className="mt-1 text-[15px] leading-6 text-texte-2">Le paiement est arrivé, c&apos;est sur le compte</p>
+            <div className="mt-6 w-full border-t border-[color:var(--h-filet)] pt-5">
+              <p className="text-[14px] leading-5 text-texte-2">{soldeDeQui}</p>
+              <p className="chiffres mt-1 text-[32px] leading-10 font-medium text-encre/95">{fcfa(direct.solde)}</p>
+            </div>
           </div>
           <SBtnLink href={retour.href} tone="secondary" block className="mt-4 min-h-12 text-[16px]">{retour.libelle}</SBtnLink>
         </section>
       )}
 
       {etat === "annulee" && (
-        <section className="mt-6 grid gap-2 px-4">
-          <SBtnLink href={nouvelle} tone="secondary" block className="min-h-12 text-[16px]">Faire une autre demande</SBtnLink>
-          <SBtnLink href={retour.href} tone="secondary" variant="text" block>{retour.libelle}</SBtnLink>
+        <section className="px-4">
+          <div className="rounded-[16px] bg-surface p-4 shadow-[inset_0_0_0_1px_var(--h-filet)]">
+            <p className="text-[16px] leading-6 font-medium text-encre/95">Demande annulée</p>
+            <p className="mt-1 text-[14px] leading-5 text-texte-2">La cantine ne confirmera pas cette demande. Si tu avais déjà payé, passe au comptoir avec la référence.</p>
+          </div>
+          <div className="mt-4 grid gap-2">
+            <SBtnLink href={nouvelle} tone="secondary" block className="min-h-12 text-[16px]">Faire une autre demande</SBtnLink>
+            <SBtnLink href={retour.href} tone="secondary" variant="text" block>{retour.libelle}</SBtnLink>
+          </div>
         </section>
       )}
 

@@ -9,8 +9,10 @@ import { ticketsDe, type Repas } from "@/lib/donnees-convive";
 import { fcfa } from "@/lib/format";
 import { maintenant } from "@/lib/horloge";
 import { jourIso, jourProche } from "@/lib/jours";
+import { qrSvg } from "@/lib/qr";
 import { etatAffiche, heureH } from "@/lib/reservation";
-import { exiger } from "@/lib/session";
+import { exiger, origine } from "@/lib/session";
+import { LienCarte } from "../carte/lien-carte";
 import { NoterRepas } from "./noter";
 import { AucunTicket } from "./vide";
 
@@ -51,6 +53,8 @@ export default async function PageTickets() {
   const instant = maintenant();
   const { duJour, aVenir, passes } = await ticketsDe(moi.id, jourIso(instant));
   const servi = duJour?.etat === "servie";
+  // Le même QR que l'écran du ticket : il ouvre ce ticket, et le comptoir peut déjà le lire ici.
+  const qr = duJour ? await qrSvg(`${await origine()}/ticket/${duJour.jeton}`) : "";
 
   return (
     <main>
@@ -65,7 +69,7 @@ export default async function PageTickets() {
                   <h2 className="text-[18px] leading-6">Aujourd&apos;hui</h2>
                   <p className="chiffres text-[14px] leading-5 text-white/70">{servi && duJour.serviLe ? `Servi à ${heureH(duJour.serviLe)}` : servi ? "Servi" : "À montrer au comptoir"}</p>
                 </div>
-                <TalonTicket className="mt-4" ticket={duJour} etat={etatAffiche(duJour, instant)} serviLe={duJour.serviLe} />
+                <TalonTicket className="mt-4" ticket={duJour} qr={qr} etat={etatAffiche(duJour, instant)} serviLe={duJour.serviLe} />
                 <span className="mt-5 flex h-12 items-center justify-center gap-2 rounded-full bg-white text-[16px] font-semibold text-[#1c1c1c]">
                   {servi ? "Voir mon ticket" : "Montrer mon ticket"} <ArrowRight className="size-5" strokeWidth={1.8} aria-hidden="true" />
                 </span>
@@ -87,6 +91,9 @@ export default async function PageTickets() {
           )}
         </div>
       )}
+      <div className="mt-8 px-4">
+        <LienCarte href="/carte" titre="Ta carte de cantine" phrase="Un QR qui ne change pas, pour être servi sans ouvrir ton ticket" />
+      </div>
     </main>
   );
 }

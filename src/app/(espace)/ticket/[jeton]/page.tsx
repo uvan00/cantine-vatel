@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { lireReglages } from "@/lib/donnees";
 import { ticketDe } from "@/lib/donnees-convive";
 import { maintenant } from "@/lib/horloge";
-import { HEURE_CLOTURE_LISIBLE, jourIso, jourProche } from "@/lib/jours";
+import { clotureLisible, jourIso, jourProche } from "@/lib/jours";
 import { qrSvg } from "@/lib/qr";
 import { peutAnnuler } from "@/lib/reservation";
 import { exiger, origine } from "@/lib/session";
@@ -23,7 +24,8 @@ export default async function PageTicket({ params }: { params: Promise<{ jeton: 
   if (!repas || repas.conviveId !== moi.id) notFound();
 
   const instant = maintenant();
-  const annulation = peutAnnuler(repas, instant);
+  const { heureCloture } = await lireReglages();
+  const annulation = peutAnnuler(repas, instant, heureCloture);
   const ticket: TicketAffiche = {
     id: repas.id,
     jeton: repas.jeton,
@@ -37,7 +39,8 @@ export default async function PageTicket({ params }: { params: Promise<{ jeton: 
     quand: jourProche(repas.jour, instant),
     instant,
     refusAnnulation: annulation.ok ? null : annulation.phrase,
-    clotureLisible: HEURE_CLOTURE_LISIBLE,
+    clotureLisible: clotureLisible(heureCloture),
+    creneau: repas.creneau,
     note: repas.note,
     mot: repas.mot,
   };

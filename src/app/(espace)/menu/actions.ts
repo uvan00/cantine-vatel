@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { annuler, reserver } from "@/lib/operations";
+import { heureValable } from "@/lib/creneaux";
+import { annuler, basculerFavori, demanderHorsDelai, reserver } from "@/lib/operations";
 import { autorise } from "@/lib/session";
 
 // Réserver et annuler. Le navigateur n'envoie qu'un identifiant : le prix, le solde, la clôture et le profil alimentaire
@@ -19,15 +20,31 @@ function rafraichir() {
   revalidatePath("/compte");
 }
 
-/** Réserve ce plat du jour pour le convive connecté. Rend le jeton de son ticket, ou le refus en une phrase. */
-export async function reserverPlat(menuJourId: string): Promise<{ ok: true; jeton: string } | { ok: false; erreur: string }> {
+/**
+ * Réserve ce plat du jour pour le convive connecté, à l'heure de passage choisie quand la cantine a ouvert des créneaux.
+ * Rend le jeton de son ticket, ou le refus en une phrase.
+ */
+export async function reserverPlat(menuJourId: string, creneau: string | null = null): Promise<{ ok: true; jeton: string } | { ok: false; erreur: string }> {
   const moi = await autorise("convive");
   if (!moi) return { ok: false, erreur: SESSION_FINIE };
   const id = Id.safeParse(menuJourId);
   if (!id.success) return { ok: false, erreur: "Ce plat n'est plus au menu" };
-  const r = await reserver(moi.id, id.data);
+  if (creneau !== null && !heureValable(creneau)) return { ok: false, erreur: "Cette heure de passage n'existe pas" };
+  const r = await reserver(moi.id, id.data, Date.now(), false, creneau);
   rafraichir();
   return r;
+}
+
+/** Après la clôture : demande ce plat à la cantine, qui accepte ou refuse. Rien n'est payé avant sa réponse. */
+export async function demanderRepas(menuJourId: string): Promise<{ ok: true } | { ok: false; erreur: string }> {
+  const moi = await autorise("convive");
+  if (!moi) return { ok: false, erreur: SESSION_FINIE };
+  const id = Id.safeParse(menuJourId);
+  if (!id.success) return { ok: false, erreur: "Ce plat n'est plus au menu" };
+  const r = await demanderHorsDelai(moi.id, id.data);
+  revalidatePath("/menu");
+  revalidatePath("/admin/commandes");
+  return r.ok ? { ok: true } : r;
 }
 
 /** Annule un repas du convive connecté : il est remboursé dans la même transaction. */
@@ -38,5 +55,16 @@ export async function annulerRepas(reservationId: string): Promise<{ ok: true } 
   if (!id.success) return { ok: false, erreur: "Réservation introuvable" };
   const r = await annuler(moi.id, id.data);
   rafraichir();
+  return r;
+}
+
+/** L'étoile d'un plat : le met en favori, ou l'en retire. Rend vrai s'il est maintenant favori. */
+export async function basculerMonFavori(platId: string): Promise<{ ok: true; favori: boolean } | { ok: false; erreur: string }> {
+  const moi = await autorise("convive");
+  if (!moi) return { ok: false, erreur: SESSION_FINIE };
+  const id = Id.safeParse(platId);
+  if (!id.success) return { ok: false, erreur: "Ce plat n'existe plus" };
+  const r = await basculerFavori(moi.id, id.data);
+  revalidatePath("/menu");
   return r;
 }

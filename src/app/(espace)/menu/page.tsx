@@ -2,19 +2,24 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BandeauSoldeBas } from "@/components/bandeau-solde-bas";
 import { Logo } from "@/components/brand";
+import { AlerteIcone } from "@/components/kit-client";
 import { SEmpty } from "@/components/sneat";
-import { profilDe, soldeDuCompte } from "@/lib/donnees";
-import { joursAuMenu, platsAuMenu, repasDuJour } from "@/lib/donnees-convive";
-import { fcfa, liste } from "@/lib/format";
+import { lireReglages, plafondDe, profilDe, soldeDuCompte } from "@/lib/donnees";
+import { demandeDuJour, joursAuMenu, mesFavoris, platsAuMenu, prisParCreneau, repasDuJour } from "@/lib/donnees-convive";
+import { estNouveau, favoriAuMenu } from "@/lib/favoris";
+import { etatsCreneaux } from "@/lib/creneaux";
+import { heuresDePassage } from "@/lib/reglages";
+import { proposerSemaine } from "@/lib/semaine";
+import { fcfa } from "@/lib/format";
 import { maintenant } from "@/lib/horloge";
-import { HEURE_CLOTURE_LISIBLE, cloturePassee, jourCourt, jourIso, jourLong, jourProche, numeroDuJour } from "@/lib/jours";
-import { nomAllergene } from "@/lib/listes";
+import { cloturePassee, clotureLisible, jourCourt, jourIso, jourLong, jourProche, numeroDuJour } from "@/lib/jours";
 import { MARQUE } from "@/lib/marque";
-import { incompatibilites } from "@/lib/profil-alimentaire";
-import { etatAffiche, peutAnnuler, peutReserver, portionsRestantes } from "@/lib/reservation";
+import { etiquettesDuPlat, etiquettesEnCause, incompatibilites } from "@/lib/profil-alimentaire";
+import { etatAffiche, peutAnnuler, peutDemanderHorsDelai, peutReserver, portionsRestantes } from "@/lib/reservation";
 import { exiger } from "@/lib/session";
 import { SEUIL_ALERTE_DEFAUT, mouvementRepas, soldeDe } from "@/lib/solde";
 import { MenuDuJour, type CartePlat, type MonRepas } from "./menu-du-jour";
+import { TaSemaine } from "./ta-semaine";
 import { VoileAttente } from "./voile-attente";
 
 // Le menu de la semaine : l'ardoise en haut (le solde, les jours en onglets), puis le jour choisi. Chaque plat reçoit
@@ -35,12 +40,25 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
   const instant = maintenant();
   const aujourdhui = jourIso(instant);
 
-  const [jours, solde, profil] = await Promise.all([joursAuMenu(moi.id, aujourdhui), soldeDuCompte(moi.id), profilDe(moi.id)]);
+  const [jours, solde, profil, reglages, favoris] = await Promise.all([joursAuMenu(moi.id, aujourdhui), soldeDuCompte(moi.id), profilDe(moi.id), lireReglages(), mesFavoris(moi.id)]);
+  const h = reglages.heureCloture;
   // Le jour de l'adresse s'il a un menu, sinon aujourd'hui, sinon le premier jour servi.
   const choisi = (jours.find((j) => j.jour === demande) ?? jours.find((j) => j.jour === aujourdhui) ?? jours[0])?.jour ?? null;
-  const [plats, repas] = choisi ? await Promise.all([platsAuMenu(choisi), repasDuJour(moi.id, choisi)]) : [[], null];
+  // Le plafond se compte sur la semaine du jour choisi, comme à la réservation.
+  const [plats, repas, pris, maDemande, plafond] = choisi
+    ? await Promise.all([platsAuMenu(choisi), repasDuJour(moi.id, choisi), prisParCreneau(choisi), demandeDuJour(moi.id, choisi), plafondDe(moi.id, choisi)])
+    : [[], null, {}, null, null];
+  // Les heures de passage, tant que ce jour se réserve encore (src/lib/creneaux.ts).
+  const heures = heuresDePassage(reglages);
+  const creneaux = choisi && heures.length > 0 && !cloturePassee(choisi, instant, h) ? etatsCreneaux(heures, pris, reglages.creneauCapacite) : null;
 
   const ceQuIlNeMangePas = { allergenes: profil?.allergenes ?? [], regimes: profil?.regimes ?? [] };
+  // « Ta semaine avec ton solde » : les jours à venir encore ouverts où ce convive n'a pas réservé (src/lib/semaine.ts).
+  const aProposer = jours.filter((j) => !j.reserve && !cloturePassee(j.jour, instant, h));
+  const ouverts = await Promise.all(aProposer.map(async (j) => ({ jour: j.jour, plats: await platsAuMenu(j.jour) })));
+  const semaine = proposerSemaine(ouverts, solde, ceQuIlNeMangePas);
+  // Un favori au menu d'un jour encore ouvert, autre que celui qu'il regarde : on le lui dit (src/lib/favoris.ts).
+  const favori = favoriAuMenu(ouverts, favoris);
   const cartes: CartePlat[] = choisi === null ? [] : plats.map((p) => {
     const verdict = peutReserver({
       maintenant: instant,
@@ -52,20 +70,32 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
       incompatibilites: incompatibilites(ceQuIlNeMangePas, p),
       solde,
       prix: p.prix,
+      heureCloture: h,
+      plafond: plafond ? { max: plafond.plafond, depense: plafond.depense } : undefined,
     });
+    // Clos aujourd'hui : le plat qui reste peut encore se demander à la cantine (src/lib/reservation.ts).
+    const demandable = !verdict.ok && verdict.refus === "cloture" && choisi === aujourdhui && peutDemanderHorsDelai({
+      maintenant: instant, jour: choisi, heureCloture: h, dejaReserve: repas !== null, demandeEnCours: maDemande?.etat === "en_attente",
+      epuise: p.epuise, portions: p.portions, reservees: p.reservees, incompatibilites: incompatibilites(ceQuIlNeMangePas, p), solde, prix: p.prix,
+    }).ok;
     return {
       id: p.id,
+      platId: p.platId,
+      favori: favoris.has(p.platId),
+      nouveau: estNouveau(p.creeLe, instant),
       nom: p.nom,
       description: p.description,
       photo: p.photo,
       prix: p.prix,
-      contient: liste([...p.allergenes.map(nomAllergene), ...(p.porc ? ["porc"] : [])]),
+      etiquettes: etiquettesDuPlat(p),
+      enCause: etiquettesEnCause(ceQuIlNeMangePas, p),
       vegetarien: p.vegetarien,
       note: p.note === null ? null : p.note.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
       avis: p.avis,
       restantes: portionsRestantes(p),
       soldeApres: soldeDe([{ montant: solde }, mouvementRepas(p.prix)]),
       refus: verdict.ok ? null : { genre: verdict.refus, phrase: verdict.phrase },
+      demandable,
     };
   });
   const monRepas: MonRepas | null = repas && {
@@ -74,15 +104,16 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
     plat: repas.plat,
     prix: repas.prix,
     etat: etatAffiche(repas, instant),
-    annulable: peutAnnuler(repas, instant).ok,
+    annulable: peutAnnuler(repas, instant, h).ok,
+    creneau: repas.creneau,
   };
 
   return (
     <main>
-      <header className="ardoise" style={{ "--sn-on": "255 255 255", "--logo-marque": "#86D6A5" } as React.CSSProperties}>
+      <header className="ardoise" style={{ "--sn-on": "255 255 255", "--logo-marque": "#67B2E8" } as React.CSSProperties}>
         <div className="px-4 pt-5">
           <Logo className="text-[20px]" />
-          <p className="mt-6 text-[15px] leading-5 text-white/65">{MARQUE.cantine}</p>
+          <p className="mt-6 text-[15px] leading-5 text-white/65">{MARQUE.ecole}</p>
           <h1 className="mt-1 text-[24px] leading-8">Le menu de la semaine</h1>
           <div className="mt-5 flex items-end justify-between gap-3">
             <div className="min-w-0">
@@ -110,7 +141,7 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
                       <span className="text-[13px] leading-4">{jourCourt(j.jour).replace(numero, "").trim()}</span>
                       <span className="chiffres text-[18px] leading-6 font-medium">{numero}</span>
                       {/* Le repère des jours déjà réservés ; sa place reste prise pour que les numéros restent alignés. */}
-                      <span aria-hidden="true" className={`mt-0.5 size-1.5 rounded-full ${j.reserve ? (ici ? "bg-marque" : "bg-[#86D6A5]") : ""}`} />
+                      <span aria-hidden="true" className={`mt-0.5 size-1.5 rounded-full ${j.reserve ? (ici ? "bg-marque" : "bg-[#67B2E8]") : ""}`} />
                       {j.reserve && <span className="sr-only">, repas réservé</span>}
                       {!ici && <VoileAttente />}
                     </Link>
@@ -124,6 +155,12 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
 
       <div className="space-y-4 px-4 pt-5">
         <BandeauSoldeBas solde={solde} seuil={profil?.seuilAlerte ?? SEUIL_ALERTE_DEFAUT} href="/recharger" />
+        {favori && favori.jour !== choisi && (
+          <AlerteIcone icone="etoile" action={<Link href={`/menu?jour=${favori.jour}`} replace scroll={false} className="font-medium text-marque-texte underline-offset-4 hover:underline">Voir</Link>}>
+            {favori.nom}, ton favori, est au menu {jourProche(favori.jour, instant)}
+          </AlerteIcone>
+        )}
+        <TaSemaine {...semaine} />
         {choisi === null ? (
           <SEmpty title="Pas de menu cette semaine" hint="La cantine n'a encore rien affiché pour les jours qui viennent. Repasse un peu plus tard." />
         ) : (
@@ -131,12 +168,13 @@ export default async function PageMenu({ searchParams }: { searchParams: Promise
             <div>
               <h2 className="text-[20px] leading-7">{titreDuJour(choisi, instant)}</h2>
               <p className="mt-1 text-[15px] leading-5 text-texte-2">
-                {cloturePassee(choisi, instant)
-                  ? "Les réservations de ce jour sont closes"
-                  : `Réserve jusqu'à ${HEURE_CLOTURE_LISIBLE} ${choisi === aujourdhui ? "ce matin" : "ce jour-là"}`}
+                {cloturePassee(choisi, instant, h)
+                  ? choisi === aujourdhui ? "Les réservations sont closes : la cantine peut encore accepter une demande" : "Les réservations de ce jour sont closes"
+                  : `Réserve jusqu'à ${clotureLisible(h)} ${choisi === aujourdhui ? "ce matin" : "ce jour-là"}`}
               </p>
             </div>
-            <MenuDuJour key={choisi} jourEnLettres={jourLong(choisi)} clotureLisible={HEURE_CLOTURE_LISIBLE} solde={solde} plats={cartes} repas={monRepas} />
+            <MenuDuJour key={choisi} jourEnLettres={jourLong(choisi)} clotureLisible={clotureLisible(h)} solde={solde} plats={cartes} repas={monRepas}
+              creneaux={creneaux} demande={maDemande} />
           </>
         )}
       </div>
