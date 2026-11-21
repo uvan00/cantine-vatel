@@ -51,3 +51,12 @@ test("pas plus de trois demandes de recharge en attente par personne", () => {
   assert.equal(peutDemander(ATTENTES_MAX - 1), true);
   assert.equal(peutDemander(ATTENTES_MAX), false);
 });
+
+
+test("le QR de la carte de cantine se lit à part du ticket", () => {
+  const j = "0123456789abcdef0123456789abcdef";
+  assert.deepEqual(lireCle(`https://cantine.exemple/carte/${j}`), { carte: j });
+  assert.deepEqual(lireCle(`https://cantine.exemple/ticket/${j}`), { jeton: j });
+  assert.deepEqual(lireCle(j), { jeton: j });
+  assert.deepEqual(lireCle("abc 123"), { code: "ABC123" });
+});

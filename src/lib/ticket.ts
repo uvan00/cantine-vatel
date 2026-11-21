@@ -28,8 +28,11 @@ export const nettoyerCode = (texte: string) => texte.toUpperCase().replace(/[^A-
  * Ce que le comptoir a lu ou tapé : l'adresse d'un ticket (« …/ticket/<jeton> »), un jeton seul, ou un code court.
  * Rend null si ce n'est rien de tout ça.
  */
-export function lireCle(texte: string): { jeton: string } | { code: string } | null {
+export function lireCle(texte: string): { jeton: string } | { code: string } | { carte: string } | null {
   const t = texte.trim();
+  // La carte de cantine (la carte d'élève sur le téléphone) : le comptoir sert le repas du jour.
+  const carte = t.match(/\/carte\/([0-9a-f]{32})(?:[/?#]|$)/i);
+  if (carte) return { carte: carte[1].toLowerCase() };
   const m = t.match(/\/ticket\/([0-9a-f]{32})(?:[/?#]|$)/i) ?? t.match(/^([0-9a-f]{32})$/i);
   if (m) return { jeton: m[1].toLowerCase() };
   const c = nettoyerCode(t);

@@ -22,9 +22,11 @@ export const joursAPartirDe = (jour: string, n: number) => Array.from({ length: 
 /** Le lundi de la semaine de ce jour. */
 export const lundiDe = (jour: string) => ajouterJours(jour, -((new Date(debut(jour)).getUTCDay() + 6) % 7));
 
-/** L'instant où les réservations de ce jour ferment. */
-export const instantCloture = (jour: string) => debut(jour) + HEURE_CLOTURE * 3_600_000;
-export const cloturePassee = (jour: string, maintenant: number) => maintenant >= instantCloture(jour);
+/** L'instant où les réservations de ce jour ferment, à l'heure réglée par la cantine (9 h par défaut). */
+export const instantCloture = (jour: string, heure = HEURE_CLOTURE) => debut(jour) + heure * 3_600_000;
+export const cloturePassee = (jour: string, maintenant: number, heure = HEURE_CLOTURE) => maintenant >= instantCloture(jour, heure);
+/** « 9 h », « 10 h » */
+export const clotureLisible = (heure = HEURE_CLOTURE) => `${heure} h`;
 
 /** Vrai quand ce jour est fini (strictement avant aujourd'hui). */
 export const jourPasse = (jour: string, maintenant: number) => jour < jourIso(maintenant);

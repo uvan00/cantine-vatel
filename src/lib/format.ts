@@ -9,12 +9,14 @@ export const heure = (iso: string | Date) =>
 export const dateLongue = (iso: string | Date) =>
   new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Abidjan" });
 
-/** « à l'instant », « il y a 4 min », « il y a 1 h 05 » */
+/** « à l'instant », « il y a 4 min », « il y a 1 h 05 », puis en jours : « il y a 1 jour », « il y a 3 jours » */
 export const depuis = (iso: string | Date, maintenant: number) => {
   const min = Math.max(0, Math.floor((maintenant - new Date(iso).getTime()) / 60000));
   if (min < 1) return "à l'instant";
   if (min < 60) return `il y a ${min} min`;
-  return `il y a ${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+  if (min < 24 * 60) return `il y a ${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+  const jours = Math.floor(min / (24 * 60));
+  return `il y a ${jours} ${jours > 1 ? "jours" : "jour"}`;
 };
 
 /** Initiales : la première lettre de chacun des deux premiers mots (« Awa » → « A », « Jean Marc » → « JM »). */

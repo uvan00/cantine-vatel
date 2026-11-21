@@ -24,6 +24,22 @@ export const LIBELLE_MOYEN: Record<MoyenRecharge, string> = {
   especes: "Espèces au comptoir",
 };
 
+/**
+ * Le QR universel PI-SPI est coupé pour le moment (demande du propriétaire du 21/11/2026) : ni le site ni l'application
+ * mobile ne le proposent. Restent le Mobile Money par Cartflox et les espèces au comptoir. Remettre `true` pour le
+ * rétablir : le code du QR (src/lib/pispi.ts) n'a pas bougé.
+ */
+export const PISPI_ACTIF = false;
+
+/**
+ * Le moyen d'une recharge que la cantine confirme à la main (« Paiement reçu ») : le QR universel quand il est actif,
+ * les espèces au comptoir sinon. Sans cela, le rapport compterait « QR universel » des paiements reçus en espèces.
+ */
+export const moyenManuel = (actif: boolean = PISPI_ACTIF): MoyenRecharge => (actif ? "pispi" : "especes");
+
+/** Le QR universel ne s'offre que s'il est actif, et seulement tant que la recharge attend son paiement. */
+export const proposerQrUniversel = (etat: string, actif: boolean = PISPI_ACTIF) => actif && etat === "en_attente";
+
 /** Une même personne ne laisse pas plus de trois demandes en attente : la liste de la cantine reste lisible. */
 export const ATTENTES_MAX = 3;
 export const peutDemander = (enAttente: number) => enAttente < ATTENTES_MAX;

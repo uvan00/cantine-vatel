@@ -30,6 +30,10 @@ export async function joursAuMenu(conviveId: string, aujourdhui: string): Promis
 export type PlatAuMenu = {
   /** Le plat au menu de ce jour (MenuJour) : c'est lui qu'on réserve. */
   id: string;
+  /** Le plat lui-même : c'est lui qu'on met en favori. */
+  platId: string;
+  /** Son arrivée à la carte : « Nouveau » pendant deux semaines (src/lib/favoris.ts). */
+  creeLe: Date;
   nom: string;
   description: string;
   photo: string;
@@ -47,6 +51,11 @@ export type PlatAuMenu = {
   avis: number;
 };
 
+/** Les plats que ce convive a mis en favori (l'étoile du menu). */
+export async function mesFavoris(userId: string): Promise<Set<string>> {
+  return new Set((await prisma.favori.findMany({ where: { userId }, select: { platId: true } })).map((f) => f.platId));
+}
+
 /** Les plats d'un jour, dans l'ordre où la cantine les a mis au menu. */
 export async function platsAuMenu(jour: string): Promise<PlatAuMenu[]> {
   const menus = await prisma.menuJour.findMany({
@@ -61,6 +70,8 @@ export async function platsAuMenu(jour: string): Promise<PlatAuMenu[]> {
     const recues = parPlat.get(m.platId) ?? [];
     return {
       id: m.id,
+      platId: m.platId,
+      creeLe: m.plat.creeLe,
       nom: m.plat.nom,
       description: m.plat.description,
       photo: m.plat.photo,
@@ -93,12 +104,14 @@ export type Repas = {
   /** La note que le convive a donnée à ce repas, s'il l'a noté. */
   note: number | null;
   mot: string;
+  /** L'heure de passage choisie (« 12:15 ») ; null sans créneaux. */
+  creneau: string | null;
 };
 
 const AVEC = { menuJour: { select: { plat: { select: { nom: true } } } }, note: { select: { note: true, mot: true } } } as const;
 
 type Ligne = {
-  id: string; jeton: string; code: string; jour: string; prix: number; etat: string; creeLe: Date; serviLe: Date | null;
+  id: string; jeton: string; code: string; jour: string; prix: number; etat: string; creeLe: Date; serviLe: Date | null; creneau: string | null;
   menuJour: { plat: { nom: string } };
   note: { note: number; mot: string } | null;
 };
@@ -115,6 +128,7 @@ const enRepas = (r: Ligne): Repas => ({
   serviLe: r.serviLe?.toISOString() ?? null,
   note: r.note?.note ?? null,
   mot: r.note?.mot ?? "",
+  creneau: r.creneau,
 });
 
 /** Le repas de ce convive pour ce jour (un seul par jour, annulés exclus), ou null. */
@@ -163,4 +177,20 @@ export async function journalDe(conviveId: string, combien: number): Promise<Lig
     select: { id: true, genre: true, montant: true, libelle: true, creeLe: true },
   });
   return lignes.map((l) => ({ id: l.id, genre: l.genre, montant: l.montant, libelle: l.libelle, quand: l.creeLe.toISOString() }));
+}
+
+/** Les places prises à chaque heure de passage d'un jour (réservations annulées exclues). */
+export async function prisParCreneau(jour: string): Promise<Record<string, number>> {
+  const groupes = await prisma.reservation.groupBy({ by: ["creneau"], where: { jour, etat: { not: "annulee" }, creneau: { not: null } }, _count: { _all: true } });
+  return Object.fromEntries(groupes.map((g) => [g.creneau as string, g._count._all]));
+}
+
+export type DemandeDuJour = { id: string; plat: string; etat: string; jeton: string | null };
+
+/** La dernière demande hors délai de ce convive pour ce jour, avec le ticket si la cantine l'a acceptée. */
+export async function demandeDuJour(conviveId: string, jour: string): Promise<DemandeDuJour | null> {
+  const d = await prisma.demandeRepas.findFirst({ where: { conviveId, jour }, orderBy: { creeLe: "desc" }, include: { menuJour: { select: { plat: { select: { nom: true } } } } } });
+  if (!d) return null;
+  const r = d.reservationId ? await prisma.reservation.findUnique({ where: { id: d.reservationId }, select: { jeton: true } }) : null;
+  return { id: d.id, plat: d.menuJour.plat.nom, etat: d.etat, jeton: r?.jeton ?? null };
 }

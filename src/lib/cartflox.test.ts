@@ -57,7 +57,7 @@ test("pas encore fini : on relira", () => {
 });
 
 test("fini sans paiement : un échec, avec la raison de Cartflox s'il en donne une", () => {
-  assert.deepEqual(verdictPaiement({ status: "FAILED", failure_message: "Solde insuffisant." }, 5000), { genre: "echec", phrase: "Solde insuffisant." });
+  assert.deepEqual(verdictPaiement({ status: "FAILED", failure_message: "Solde insuffisant." }, 5000), { genre: "echec", phrase: "Solde insuffisant sur ce compte Mobile Money" });
   assert.deepEqual(verdictPaiement({ status: "cancelled" }, 5000), { genre: "echec", phrase: "Le paiement n'a pas abouti" });
   assert.equal(verdictPaiement({ status: "EXPIRED" }, 5000).genre, "echec");
 });
@@ -74,4 +74,17 @@ test("un webhook bien signé passe, un webhook altéré, mal signé ou trop vieu
   assert.equal(signatureValide(corps, null, SEC_TEST, t), false);
   assert.equal(signatureValide(corps, "t=abc,v1=00", SEC_TEST, t), false);
   assert.equal(signatureValide(corps, `t=${t}`, SEC_TEST, t), false);
+});
+
+
+test("un paiement remboursé, annulé ou échoué n'est jamais crédité, même si « paid » est resté à vrai", () => {
+  for (const status of ["REFUNDED", "CANCELLED", "FAILED", "EXPIRED"]) {
+    assert.equal(verdictPaiement({ status, paid: true, amount: 5000, currency: "XOF" }, 5000).genre, "echec");
+  }
+});
+
+test("la raison d'un échec est dite en « tu », jamais dans les mots bruts de l'opérateur", () => {
+  const v = verdictPaiement({ status: "FAILED", failure_message: "La demande n'a pas été validée sur votre téléphone à temps. Relancez le paiement." }, 5000);
+  assert.deepEqual(v, { genre: "echec", phrase: "Tu n'as pas validé le paiement à temps sur ton téléphone : relance-le" });
+  assert.deepEqual(verdictPaiement({ status: "FAILED" }, 5000), { genre: "echec", phrase: "Le paiement n'a pas abouti" });
 });

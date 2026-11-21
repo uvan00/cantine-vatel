@@ -4,6 +4,7 @@ import { unRepasParJour } from "@/app/(espace)/parent/repas";
 import { prisma } from "@/lib/db";
 import { profilDe, soldeDuCompte, soldesDesComptes, type VueProfil } from "@/lib/donnees";
 import { ajouterJours, jourIso, lundiDe } from "@/lib/jours";
+import { lireListe } from "@/lib/listes";
 import type { EtatRecharge } from "@/lib/recharge";
 import { etatAffiche, type EtatAffiche } from "@/lib/reservation";
 import { SEUIL_ALERTE_DEFAUT } from "@/lib/solde";
@@ -18,13 +19,14 @@ export const Identifiant = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "Introuvabl
 
 /* Les enfants d'un parent */
 
-export type Enfant = { id: string; nom: string; classe: string; solde: number; seuil: number };
+/** `allergenes` et `regimes` : ce que l'enfant ne mange pas (son profil alimentaire), pour la ligne « Ne mange pas ». */
+export type Enfant = { id: string; nom: string; classe: string; solde: number; seuil: number; photo: string | null; allergenes: string[]; regimes: string[] };
 
 /** Les enfants reliés à ce parent, par ordre alphabétique, avec leur solde et leur seuil d'alerte. */
 export async function enfantsDuParent(parentId: string): Promise<Enfant[]> {
   const liens = await prisma.lienParent.findMany({
     where: { parentId },
-    select: { enfant: { select: { id: true, name: true, profil: { select: { classe: true, seuilAlerte: true } } } } },
+    select: { enfant: { select: { id: true, name: true, image: true, profil: { select: { classe: true, seuilAlerte: true, allergenes: true, regimes: true } } } } },
   });
   // Le tri se fait ici : la base rangerait « Élodie » après « Zoé ».
   liens.sort((a, b) => a.enfant.name.localeCompare(b.enfant.name, "fr"));
@@ -35,6 +37,9 @@ export async function enfantsDuParent(parentId: string): Promise<Enfant[]> {
     classe: enfant.profil?.classe ?? "",
     solde: soldes.get(enfant.id) ?? 0,
     seuil: enfant.profil?.seuilAlerte ?? SEUIL_ALERTE_DEFAUT,
+    photo: enfant.image ?? null,
+    allergenes: lireListe(enfant.profil?.allergenes ?? ""),
+    regimes: lireListe(enfant.profil?.regimes ?? ""),
   }));
 }
 
@@ -65,7 +70,7 @@ export async function semaineDesEnfants(enfantIds: string[], maintenant: number)
 
 export type RepasEnfant = { id: string; jour: string; plat: string; prix: number; etat: EtatAffiche; note: number | null };
 export type LigneHistorique = { id: string; libelle: string; montant: number; creeLe: Date };
-export type FicheEnfant = { nom: string; profil: VueProfil; solde: number; repas: RepasEnfant[]; historique: LigneHistorique[] };
+export type FicheEnfant = { nom: string; photo: string | null; profil: VueProfil; solde: number; repas: RepasEnfant[]; historique: LigneHistorique[] };
 
 export const JOURS_PASSES = 14;
 const LIGNES_HISTORIQUE = 20;
@@ -76,7 +81,7 @@ const LIGNES_HISTORIQUE = 20;
  */
 export async function ficheEnfant(conviveId: string, maintenant: number): Promise<FicheEnfant | null> {
   const [compte, profil] = await Promise.all([
-    prisma.user.findUnique({ where: { id: conviveId }, select: { name: true } }),
+    prisma.user.findUnique({ where: { id: conviveId }, select: { name: true, image: true } }),
     profilDe(conviveId),
   ]);
   if (!compte || !profil) return null;
@@ -96,6 +101,7 @@ export async function ficheEnfant(conviveId: string, maintenant: number): Promis
   ]);
   return {
     nom: compte.name,
+    photo: compte.image ?? null,
     profil,
     solde,
     repas: unRepasParJour(reservations, (r) => r.jour).map((r) => ({ id: r.id, jour: r.jour, plat: r.menuJour.plat.nom, prix: r.prix, etat: etatAffiche(r, maintenant), note: r.note?.note ?? null })),
@@ -105,18 +111,18 @@ export async function ficheEnfant(conviveId: string, maintenant: number): Promis
 
 /* Les recharges */
 
-export type RechargeEnAttente = { id: string; montant: number; reference: string; creeLe: Date; beneficiaire: { id: string; nom: string }; demandeur: { id: string; nom: string } };
+export type RechargeEnAttente = { id: string; montant: number; reference: string; creeLe: Date; beneficiaire: { id: string; nom: string; photo: string | null }; demandeur: { id: string; nom: string } };
 
 /** Les recharges que cette personne a demandées, ou qui lui sont destinées, et qui attendent encore la cantine. */
 export async function rechargesEnAttenteDe(personneId: string): Promise<RechargeEnAttente[]> {
   const recharges = await prisma.recharge.findMany({
     where: { etat: "en_attente", OR: [{ demandeurId: personneId }, { beneficiaireId: personneId }] },
     orderBy: { creeLe: "desc" },
-    select: { id: true, montant: true, reference: true, creeLe: true, beneficiaire: { select: { id: true, name: true } }, demandeur: { select: { id: true, name: true } } },
+    select: { id: true, montant: true, reference: true, creeLe: true, beneficiaire: { select: { id: true, name: true, image: true } }, demandeur: { select: { id: true, name: true } } },
   });
   return recharges.map((r) => ({
     id: r.id, montant: r.montant, reference: r.reference, creeLe: r.creeLe,
-    beneficiaire: { id: r.beneficiaire.id, nom: r.beneficiaire.name },
+    beneficiaire: { id: r.beneficiaire.id, nom: r.beneficiaire.name, photo: r.beneficiaire.image ?? null },
     demandeur: { id: r.demandeur.id, nom: r.demandeur.name },
   }));
 }

@@ -7,7 +7,8 @@ import { auth } from "@/lib/auth";
 // la vérification se fait côté serveur, jamais dans le navigateur.
 
 export type Role = "convive" | "parent" | "admin";
-export type Moi = { id: string; nom: string; email: string; role: Role };
+/** La personne connectée ; `photo` : l'adresse de sa photo de profil, ou null (les initiales la remplacent). */
+export type Moi = { id: string; nom: string; email: string; role: Role; photo: string | null };
 
 const ROLES: readonly string[] = ["convive", "parent", "admin"];
 
@@ -16,7 +17,7 @@ export async function moi(): Promise<Moi | null> {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) return null;
   const role = (s.user as { role?: string | null }).role ?? "convive";
-  return { id: s.user.id, nom: s.user.name, email: s.user.email, role: (ROLES.includes(role) ? role : "convive") as Role };
+  return { id: s.user.id, nom: s.user.name, email: s.user.email, role: (ROLES.includes(role) ? role : "convive") as Role, photo: s.user.image ?? null };
 }
 
 /** La page d'accueil de chaque rôle. */

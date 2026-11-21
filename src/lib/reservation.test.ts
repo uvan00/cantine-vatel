@@ -1,7 +1,7 @@
 // Essais des règles de réservation, d'annulation et du scan au comptoir : `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { estComplet, etatAffiche, peutAnnuler, peutReserver, portionsRestantes, scanner, type DemandeReservation } from "./reservation.ts";
+import { estComplet, etatAffiche, peutAnnuler, peutDemanderHorsDelai, peutReserver, portionsRestantes, scanner, type DemandeHorsDelai, type DemandeReservation } from "./reservation.ts";
 
 const t = (iso: string) => Date.parse(iso);
 /** fcfa() met des espaces insécables : on compare sans aucune espace. */
@@ -100,4 +100,77 @@ test("le scan au comptoir a cinq réponses", () => {
   assert.deepEqual(scanner({ etat: "reservee", jour: "2026-11-22", serviLe: null }, midi), { genre: "autre_jour", phrase: "Ce ticket est pour demain" });
   assert.deepEqual(scanner({ etat: "reservee", jour: "2026-11-20", serviLe: null }, midi), { genre: "autre_jour", phrase: "Ce ticket était pour hier" });
   assert.deepEqual(scanner({ etat: "reservee", jour: "2026-11-21", serviLe: null }, midi), { genre: "servi", phrase: "Servi" });
+});
+
+test("la cantine qui réserve pour un convive respecte la clôture, comme lui (cahier des charges, 4.1)", () => {
+  assert.deepEqual(peutReserver(demande({ maintenant: t("2026-11-21T08:59:00Z"), parLaCantine: true })), { ok: true });
+  const apres = peutReserver(demande({ maintenant: t("2026-11-21T12:00:00Z"), parLaCantine: true }));
+  assert.equal(apres.ok, false);
+  if (!apres.ok) assert.equal(apres.refus, "cloture");
+});
+
+test("seule une demande hors délai acceptée passe après la clôture, le jour même, jamais un jour passé", () => {
+  const midi = t("2026-11-21T12:00:00Z");
+  assert.deepEqual(peutReserver(demande({ maintenant: midi, parLaCantine: true, horsDelai: true })), { ok: true });
+  const passe = peutReserver(demande({ maintenant: t("2026-11-22T08:00:00Z"), parLaCantine: true, horsDelai: true }));
+  assert.equal(passe.ok, false);
+  if (!passe.ok) assert.equal(passe.refus, "cloture");
+});
+
+test("quand la cantine réserve, les règles restent les mêmes et la phrase parle du convive", () => {
+  const cantine = (d: Partial<DemandeReservation>) => peutReserver(demande({ parLaCantine: true, ...d }));
+  const deja = cantine({ dejaReserve: true });
+  assert.ok(!deja.ok && deja.phrase === "Un repas par jour, ce convive a déjà réservé");
+  const profil = cantine({ incompatibilites: ["contient de l'arachide"] });
+  assert.ok(!profil.ok && profil.phrase === "Ce plat contient de l'arachide, pas pour ce convive");
+  const solde = cantine({ solde: 1000 });
+  assert.ok(!solde.ok && serre(solde.phrase) === "Illuimanque500FCFApourceplat");
+  const complet = cantine({ portions: 10, reservees: 10 });
+  assert.ok(!complet.ok && complet.refus === "complet");
+});
+
+test("l'heure de clôture réglée par la cantine remplace 9 h, dans la règle comme dans la phrase", () => {
+  const a930 = t("2026-11-21T09:30:00Z");
+  assert.deepEqual(peutReserver(demande({ maintenant: a930, heureCloture: 10 })), { ok: true });
+  const v = peutReserver(demande({ maintenant: t("2026-11-21T10:00:00Z"), heureCloture: 10 }));
+  assert.equal(!v.ok && v.phrase, "Trop tard pour ce jour, les réservations ferment à 10 h");
+  assert.deepEqual(peutAnnuler({ etat: "reservee", jour: "2026-11-21" }, a930, 10), { ok: true });
+  assert.equal(peutAnnuler({ etat: "reservee", jour: "2026-11-21" }, a930).ok, false, "sans réglage, 9 h");
+});
+
+const horsDelai = (d: Partial<DemandeHorsDelai> = {}): DemandeHorsDelai => ({
+  maintenant: t("2026-11-21T10:30:00Z"),
+  jour: "2026-11-21",
+  dejaReserve: false,
+  demandeEnCours: false,
+  epuise: false,
+  portions: 40,
+  reservees: 30,
+  incompatibilites: [],
+  solde: 5000,
+  prix: 1500,
+  ...d,
+});
+
+test("la demande hors délai : aujourd'hui seulement, une fois la clôture passée", () => {
+  assert.deepEqual(peutDemanderHorsDelai(horsDelai()), { ok: true });
+  assert.match((peutDemanderHorsDelai(horsDelai({ maintenant: t("2026-11-21T08:00:00Z") })) as { phrase: string }).phrase, /réserve directement/);
+  assert.match((peutDemanderHorsDelai(horsDelai({ jour: "2026-11-22" })) as { phrase: string }).phrase, /aujourd'hui/);
+  assert.deepEqual(peutDemanderHorsDelai(horsDelai({ maintenant: t("2026-11-21T09:30:00Z"), heureCloture: 9 })), { ok: true });
+});
+
+test("la demande hors délai garde les règles : un repas par jour, une demande à la fois, portions, profil, solde", () => {
+  assert.equal(peutDemanderHorsDelai(horsDelai({ dejaReserve: true })).ok, false);
+  assert.match((peutDemanderHorsDelai(horsDelai({ demandeEnCours: true })) as { phrase: string }).phrase, /partie/);
+  assert.equal(peutDemanderHorsDelai(horsDelai({ reservees: 40 })).ok, false);
+  assert.equal(peutDemanderHorsDelai(horsDelai({ incompatibilites: ["arachide"] })).ok, false);
+  assert.equal(serre((peutDemanderHorsDelai(horsDelai({ solde: 1000 })) as { phrase: string }).phrase), serre("Il te manque 500 F CFA pour ce plat"));
+});
+
+test("le plafond de la semaine bloque le repas qui le dépasserait", () => {
+  assert.deepEqual(peutReserver(demande({ plafond: { max: 5000, depense: 3500 } })), { ok: true });
+  const v = peutReserver(demande({ plafond: { max: 5000, depense: 4000 } }));
+  assert.equal(!v.ok && v.refus, "plafond");
+  assert.equal(serre(!v.ok ? v.phrase : ""), serre("Ce repas dépasserait ton plafond de la semaine, 5 000 F CFA"));
+  assert.deepEqual(peutReserver(demande({ plafond: { max: null, depense: 99999 } })), { ok: true });
 });

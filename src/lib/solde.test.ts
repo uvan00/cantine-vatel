@@ -1,7 +1,7 @@
 // Essais de l'argent : `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { manque, mouvementRecharge, mouvementRemboursement, mouvementRepas, seuilValable, soldeBas, soldeDe } from "./solde.ts";
+import { depassePlafond, manque, mouvementRecharge, mouvementRemboursement, mouvementRepas, mouvementsTransfert, peutReglerPlafond, plafondValable, refusTransfert, seuilValable, soldeBas, soldeDe } from "./solde.ts";
 
 test("le solde est la somme du journal", () => {
   assert.equal(soldeDe([]), 0);
@@ -46,4 +46,35 @@ test("un seuil d'alerte est un entier de 0 à 50 000", () => {
   assert.equal(seuilValable(50_001), false);
   assert.equal(seuilValable(-1), false);
   assert.equal(seuilValable(1500.5), false);
+});
+
+
+test("un transfert entre frères et sœurs : ce qui part de l'un arrive sur l'autre", () => {
+  const [sortie, entree] = mouvementsTransfert(1500);
+  assert.equal(sortie.montant + entree.montant, 0);
+  assert.equal(entree.montant, 1500);
+  assert.equal(refusTransfert({ montant: 1500, soldeSource: 2000, memeCompte: false }), null);
+});
+
+test("un transfert refusé dit pourquoi : même enfant, trop petit, plus que le solde", () => {
+  assert.match(refusTransfert({ montant: 1500, soldeSource: 2000, memeCompte: true }) ?? "", /différents/);
+  assert.match(refusTransfert({ montant: 50, soldeSource: 2000, memeCompte: false }) ?? "", /Au moins/);
+  assert.match(refusTransfert({ montant: 12.5, soldeSource: 2000, memeCompte: false }) ?? "", /Au moins/);
+  assert.match((refusTransfert({ montant: 3000, soldeSource: 2000, memeCompte: false }) ?? "").replace(/\s/g, ""), /2000FCFA/);
+});
+
+test("le plafond de la semaine : pas de plafond, ou ce qui le dépasserait", () => {
+  assert.equal(plafondValable(null), true);
+  assert.equal(plafondValable(10000), true);
+  assert.equal(plafondValable(100), false);
+  assert.equal(depassePlafond(null, 99999, 2000), false);
+  assert.equal(depassePlafond(10000, 8000, 2000), false);
+  assert.equal(depassePlafond(10000, 8500, 2000), true);
+});
+
+test("le plafond se règle par le parent s'il y en a un, sinon par le convive lui-même", () => {
+  assert.equal(peutReglerPlafond("parent", true), true);
+  assert.equal(peutReglerPlafond("convive", false), true);
+  assert.equal(peutReglerPlafond("convive", true), false);
+  assert.equal(peutReglerPlafond("admin", false), false);
 });

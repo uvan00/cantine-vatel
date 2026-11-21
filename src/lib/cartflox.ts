@@ -5,6 +5,7 @@
 // fait d'un statut de paiement, et si un webhook est bien signé. Les appels réseau sont dans cartflox-serveur.ts.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { fcfa } from "./format.ts";
+import { messageOperateur } from "./mobile-money.ts";
 
 /** Le pays et la monnaie servis : la Côte d'Ivoire, en francs CFA (XOF). */
 export const PAYS_CARTFLOX = "CI";
@@ -58,6 +59,11 @@ const FINIS_SANS_PAIEMENT = ["FAILED", "CANCELLED", "EXPIRED", "REFUNDED"];
  */
 export function verdictPaiement(s: StatutSession, montantRecharge: number): VerdictPaiement {
   const statut = String(s.status ?? "").toUpperCase();
+  // Le statut passe avant « paid » : un paiement remboursé garde parfois « paid » à vrai, il n'est plus à créditer.
+  if (FINIS_SANS_PAIEMENT.includes(statut)) {
+    const message = (s.failure_message ?? "").trim();
+    return { genre: "echec", phrase: message ? messageOperateur(message) : "Le paiement n'a pas abouti" };
+  }
   if (statut === "SUCCESS" || s.paid === true) {
     if (String(s.currency ?? "").toUpperCase() !== DEVISE_CARTFLOX) {
       return { genre: "a_verifier", phrase: `Paiement reçu dans une autre monnaie (${s.currency ?? "inconnue"}) : à vérifier à la main` };
@@ -67,10 +73,6 @@ export function verdictPaiement(s: StatutSession, montantRecharge: number): Verd
       return { genre: "a_verifier", phrase: `Cartflox a encaissé ${Number.isFinite(encaisse) ? fcfa(encaisse) : "un montant inconnu"} au lieu de ${fcfa(montantRecharge)} : à vérifier à la main` };
     }
     return { genre: "crediter" };
-  }
-  if (FINIS_SANS_PAIEMENT.includes(statut)) {
-    const message = (s.failure_message ?? "").trim();
-    return { genre: "echec", phrase: message || "Le paiement n'a pas abouti" };
   }
   return { genre: "attendre" };
 }

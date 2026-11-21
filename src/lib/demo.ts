@@ -12,3 +12,11 @@ export const COMPTES_DEMO = {
 export type RoleDemo = keyof typeof COMPTES_DEMO;
 
 export const modeDemo = () => process.env.MODE_DEMO === "1";
+
+/**
+ * Les rôles qu'on peut essayer en un clic. Le compte de la cantine n'en fait partie que sur un ordinateur de
+ * développement : sur un serveur en ligne (construction de production), aucun bouton n'ouvre l'administration, même en
+ * mode démonstration. La cantine s'y connecte avec son e-mail et son mot de passe.
+ */
+export const rolesDemo = (production: boolean = process.env.NODE_ENV === "production"): RoleDemo[] =>
+  production ? ["convive", "parent"] : ["convive", "parent", "admin"];
