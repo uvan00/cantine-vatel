@@ -6,20 +6,23 @@ En une phrase : « Plus de file, plus de gaspillage, plus d'allergie surprise, p
 | Problème de la cantine | Ce que fait Tablée |
 |---|---|
 | Les files d'attente | On réserve à l'avance et on reçoit un ticket avec un QR. Au comptoir, un scan : servi |
-| Le gaspillage | La cuisine voit le nombre exact de repas par plat avant de cuisiner |
-| Les régimes et les allergies | Chaque convive a son profil alimentaire. Un plat qui ne lui convient pas ne se réserve pas |
+| Le gaspillage | La cuisine voit le nombre exact de repas par plat avant de cuisiner, puis pèse les restes de chaque plat après le service |
+| Les régimes et les allergies | Chaque convive a son profil alimentaire. Un plat qui ne lui convient pas ne se réserve pas, et la cantine voit, en le mettant au menu, combien de convives ne pourront pas le prendre. Les quatorze allergènes de la réglementation européenne, chacun avec son dessin à côté de son nom ; au service, le scanner, les commandes et la feuille de cuisine disent à quoi un convive est allergique, et signalent un repas déjà réservé qui ne convient plus à son profil |
 | Les menus et les prix peu clairs | Le menu de la semaine, avec la photo, le prix et les allergènes de chaque plat |
 | La gestion à la main | Commandes du jour, recharges et chiffres calculés tout seuls |
 
 ## Les trois rôles
 
-- **L'élève ou l'employé** : voit le menu de la semaine, réserve un repas (réserver, c'est payer), annule jusqu'à 9 h le
-  jour même et est remboursé tout de suite, montre son ticket au comptoir, suit son solde et son historique, règle son
+- **L'élève ou l'employé** : voit le menu de la semaine, réserve un repas (réserver, c'est payer), annule jusqu'à la clôture
+  du jour même (9 h par défaut, la cantine la règle) et est remboursé tout de suite, montre son ticket au comptoir, suit son solde et son historique, règle son
   profil alimentaire, note ses repas.
-- **Le parent** : relie son enfant avec un code famille, voit son solde et ses repas de la semaine (servi, non retiré),
+- **Le parent** : relie son enfant avec le code que celui-ci crée pour lui dans son compte (valable 15 minutes, pour un
+  seul parent ; l'enfant peut retirer un parent), voit son solde et ses repas de la semaine (servi, non retiré),
   est prévenu quand le solde est bas, recharge le compte, règle le profil alimentaire.
-- **L'administrateur de la cantine** : planifie les menus, suit les commandes d'aujourd'hui et de demain en direct, sert
-  en scannant les tickets, confirme les recharges, lit son tableau de bord.
+- **L'administrateur de la cantine** : planifie les menus (et voit qui ne pourra pas prendre chaque plat), suit les
+  commandes d'aujourd'hui et de demain en direct, sert en scannant les tickets, réserve pour un convive sans téléphone
+  (jusqu'à la clôture, comme tout le monde), imprime la feuille du jour en secours, pèse les restes après le service,
+  voit qui n'est pas venu chercher son repas, confirme les recharges, lit son tableau de bord.
 
 ## Essayer
 
@@ -33,7 +36,9 @@ Comptes de démonstration (personnes et repas inventés pour l'essai, créés pa
 | Parent (Mariam, sa maman) | `mariam@cantine.test` | `cantine-demo-2026` |
 | Cantine (Aminata, administratrice) | `cantine@cantine.test` | `cantine-demo-2026` |
 
-Quand `MODE_DEMO="1"`, l'accueil propose aussi « Essayer comme… » : une entrée directe dans ces trois comptes.
+Quand `MODE_DEMO="1"`, la page de connexion propose aussi « Essayer sans compte » : une entrée directe dans les comptes d'Awa
+et de Mariam. Celui de la cantine ne s'ouvre en un clic que sur un ordinateur de développement, jamais sur un serveur en
+ligne : la cantine s'y connecte avec son e-mail et son mot de passe.
 On peut bien sûr créer son propre compte d'élève, d'employé ou de parent. Un compte d'administrateur ne se crée jamais
 par l'inscription publique.
 
@@ -44,11 +49,14 @@ Il faut Node 24.
 ```bash
 npm install
 cp .env.example .env        # puis mettre une valeur au hasard dans BETTER_AUTH_SECRET (openssl rand -hex 32)
-npm run demo                # crée la base SQLite et les données de démonstration
+npm run demo                # crée la base SQLite et les données de démonstration, livraisons de la réserve comprises
 npm run dev                 # http://localhost:3700
 ```
 
 Vérifier : `npm test` (règles pures), `npx tsc --noEmit`, `npm run lint`.
+
+Les icônes de l'application posée sur l'écran d'accueil (la marque de Vatel sur fond blanc) se refont avec
+`node scripts/icones.mjs`, si la marque change.
 
 ## Architecture
 
@@ -61,6 +69,7 @@ Next.js 16 (App Router)
    ├─ src/app/(espace)      le convive et le parent
    ├─ src/app/admin         la cantine
    ├─ src/app/api           routes relues « en direct » (toutes les 3 secondes)
+   ├─ src/app/api/mobile    routes JSON de l'application mobile, par jeton
    ├─ src/lib/*.ts          les règles pures, avec leurs essais à côté
    ├─ src/lib/operations.ts tout ce qui écrit dans la base, en transactions
    └─ src/lib/session.ts    qui est connecté, et son rôle (Better Auth)
@@ -74,17 +83,24 @@ Prisma  →  SQLite (un fichier)
 - **Better Auth** : connexion par e-mail et mot de passe, sessions gardées en base, mots de passe hachés.
 - **Le « direct »** : les écrans qui bougent (commandes, ticket, attente d'une recharge) relisent une petite route JSON
   toutes les 3 secondes. Rien à reconnecter sur un wifi fragile.
+- **L'application mobile** (React Native, dans son propre dépôt) : elle appelle `src/app/api/mobile/**` avec un jeton
+  (`Authorization: Bearer`, greffon `bearer()` de Better Auth). Chaque route vérifie le rôle avec `autorise(...)` et passe
+  par les mêmes fonctions que les pages : aucune règle n'est écrite deux fois.
 
 ### Les règles, à un seul endroit chacune
 
 | Règle | Fichier | Essais |
 |---|---|---|
-| Les jours et la clôture à 9 h | `src/lib/jours.ts` | `jours.test.ts` |
+| Les jours et la clôture (9 h par défaut, réglable) | `src/lib/jours.ts`, `src/lib/reglages.ts` | `jours.test.ts`, `reglages.test.ts` |
 | L'argent : un journal de mouvements, le solde est leur somme | `src/lib/solde.ts` | `solde.test.ts` |
 | Réserver, annuler, scanner un ticket | `src/lib/reservation.ts` | `reservation.test.ts` |
 | Le profil alimentaire | `src/lib/profil-alimentaire.ts` | `profil-alimentaire.test.ts` |
 | Les recharges, les jetons et les codes | `src/lib/recharge.ts`, `src/lib/ticket.ts` | `ticket.test.ts` |
 | Les bornes des plats, des menus et des notes | `src/lib/menu.ts` | `menu.test.ts` |
+| Les restes pesés : kilos tapés, grammes gardés, restes par repas servi, plat le plus laissé | `src/lib/restes.ts` | `restes.test.ts` |
+| Les tentatives de connexion et de code famille, comptées et limitées | `src/lib/tentatives.ts` | `tentatives.test.ts` |
+| Le code famille à usage unique | `src/lib/code-famille.ts` | `code-famille.test.ts` |
+| Le laissez-passer de la borne d'entrée | `src/lib/borne.ts` | `borne.test.ts` |
 
 L'écran et le serveur appliquent la même fonction : un bouton grisé dit exactement la raison que le serveur donnerait.
 
@@ -92,9 +108,18 @@ L'écran et le serveur appliquent la même fonction : un bouton grisé dit exact
 
 - Le rôle n'est jamais envoyé par le navigateur : champ fermé à la saisie, posé par le serveur.
 - Chaque page vérifie la session et le rôle (`exiger`), chaque action serveur et chaque route aussi (`autorise`).
-- Un parent ne voit et ne touche que ses enfants.
+- Un parent ne voit et ne touche que ses enfants. Il ne se relie à un enfant qu'avec un code que l'enfant vient de créer
+  pour lui : le code vaut 15 minutes et ne sert qu'une fois. L'enfant voit ses parents reliés et peut en retirer un.
+- La connexion se ferme un moment après 8 mots de passe faux pour un même e-mail en 10 minutes (30 depuis une même
+  adresse), sur le site, dans l'application et sur la route de Better Auth. Le compte vit dans la mémoire du serveur.
+- Les routes de Better Auth dont la cantine ne se sert pas sont fermées (créer un compte, changer son nom ou sa photo,
+  changer de mot de passe) : tout passe par les actions du site, qui valident.
+- La borne d'entrée ne tourne pas sur la session de la cantine : la cantine la lance, sa session se ferme sur l'appareil,
+  qui ne garde qu'un laissez-passer signé pour valider des tickets.
+- Une carte de cantine perdue ou photographiée se refait : l'ancienne ne passe plus.
 - Les prix et les montants sont lus dans la base par le serveur, jamais reçus du navigateur. Chaque entrée est validée (zod).
 - Une réservation et son mouvement d'argent s'écrivent dans la même transaction. Le solde ne passe jamais sous zéro.
+  Annuler, servir et annuler une recharge s'écrivent sous condition : deux gestes au même instant ne comptent qu'une fois.
 - Le jeton d'un ticket est tiré au hasard (128 bits) ; un ticket ne se sert qu'une fois.
 - Aucun secret dans le dépôt : `.env` est ignoré par git, `.env.example` ne contient aucune valeur.
 
@@ -118,6 +143,9 @@ sans attendre la cantine.
 - Un paiement qui ne peut pas se créditer tout seul (montant inattendu, ou arrivé après l'annulation de la demande) va dans
   « À regarder », chez la cantine, qui le crédite après l'avoir vu dans son espace Cartflox.
 
+**Coupé pour le moment** (21/11/2026) : `PISPI_ACTIF = false` dans `src/lib/recharge.ts`, le QR n'est proposé ni sur le
+site ni dans l'application mobile. Le paragraphe suivant décrit son fonctionnement quand il est rétabli.
+
 **Le QR universel PI-SPI**, en second choix sur la même page : le QR de la BCEAO, fabriqué par sa bibliothèque officielle
 [`@pi-spi/qrcode`](https://www.npmjs.com/package/@pi-spi/qrcode), avec l'adresse de paiement de la cantine, le montant et la
 référence. L'argent arrive directement sur le compte de la cantine, qui confirme à la main (« Paiement reçu »). Le scanner
@@ -134,17 +162,41 @@ de Wave l'ouvre (essai du 18/11/2026 sur un vrai téléphone) ; Orange l'annonce
 Les clés viennent de l'espace Cartflox (rubrique Développeurs). Seule la clé secrète sert ; la clé publique, si elle est
 posée, doit être du même mode. Clés de production (`af_live_...`) pour de vrais paiements. Avec des clés de test
 (`af_test_...`) ou un espace Cartflox encore en mode test, Cartflox ne débite jamais un téléphone : le débit direct ne
-marche qu'en production. Sans clé, seul le QR universel est proposé. Pour le webhook, déclarer
+marche qu'en production. Sans clé, la recharge se règle en espèces au comptoir (le QR universel est coupé pour le
+moment). Pour le webhook, déclarer
 `https://<adresse>/api/cartflox/webhook` dans l'espace Cartflox : Cartflox le signe avec la clé secrète.
+
+### Brancher l'IA (la suggestion de la semaine et l'assistant)
+
+```bash
+./scripts/cle-ia.sh   # demande la clé d'Anthropic (sk-ant-...), sans l'afficher, et l'écrit dans .env.local
+```
+
+Sans clé, le rapport de la semaine le dit et rien ne part vers l'IA. Avec elle, « Rédiger la suggestion » envoie les
+chiffres du rapport, sans aucun nom d'élève, au modèle Claude Opus 5.5 (`src/lib/ia.ts`) et montre de deux à quatre
+gestes pour la semaine suivante. Une réponse qui contient un chiffre n'est pas montrée (`src/lib/suggestion.ts`).
+
+L'assistant de la cantine (le panneau à droite du tableau de bord) :
+- **Les questions guidées** répondent toujours, avec les vrais chiffres et sans IA.
+- **Les questions libres** passent par la même clé, avec 50 questions par jour au plus pour toute la cantine (`src/lib/assistant.ts`, `src/app/admin/assistant/actions.ts`).
+- **Le compteur** vit dans le serveur et repart à zéro chaque jour.
+
+Crédit : l'orbe de l'assistant vient de [Rare UI](https://rareui.com) (`src/components/rare-ui/`, licence dans le même
+dossier), comme dans LinkAfr.
 
 ## Ce qui se fait encore à la main, dit sans détour
 
-- **La confirmation d'une recharge payée par le QR universel** : la cantine vérifie sur son compte que l'argent est
-  arrivé, puis touche « Paiement reçu ». Les recharges payées par Cartflox, elles, se créditent toutes seules.
+- **La confirmation d'une recharge réglée au comptoir** : la cantine encaisse, puis touche « Paiement reçu » (le QR
+  universel, coupé pour le moment, se confirmait de la même façon). Les recharges payées par Cartflox, elles, se
+  créditent toutes seules.
+- **Le paiement Mobile Money n'a pas encore été vu aboutir de bout en bout** dans la base de démonstration : ses règles
+  sont essayées (`cartflox.test.ts`, `mobile-money.test.ts`), un vrai débit reste à faire.
+- **Les tarifs réduits** sont prévus dans la base ; aucune règle ne les applique encore, chaque repas est au prix du plat.
 - **Les photos des plats** sont des images générées, à remplacer par celles de la vraie cantine.
 - **Les prix et le menu** sont des données de démonstration.
 - **Les alertes** s'affichent dans l'application. Pas encore de notification push ni de message WhatsApp.
-- Pas de mode hors ligne.
+- **Hors ligne** : le scanner de la cantine continue de servir d'après sa copie des tickets du jour, et l'application
+  mobile garde le ticket du jour. Le reste demande le réseau, la borne d'entrée aussi.
 
 ## Préparation
 
@@ -154,6 +206,9 @@ l'auteur pour ses autres produits (`src/components/sneat.tsx`, `fenetre.tsx`, `i
 
 ## Mise en ligne
 
-Une image Docker (`Dockerfile`) : Node 24, `next start`, la base SQLite dans le volume `/donnees`. Trois valeurs arrivent
+Une image Docker (`Dockerfile`) : Node 24, `next start`, la base SQLite dans le volume `/donnees`. Ces valeurs arrivent
 par l'environnement du serveur : `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (l'adresse publique), `PISPI_ALIAS`
 (l'adresse de paiement de la cantine), `CARTFLOX_CLE_PUBLIQUE` et `CARTFLOX_CLE_SECRETE`.
+
+Avec de vraies données : `MODE_DEMO` coupé, et aucun compte de démonstration dans la base (leur mot de passe est écrit
+plus haut). Un seul serveur : la limite des tentatives de connexion vit dans sa mémoire.
