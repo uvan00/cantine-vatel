@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { z } from "zod";
-import { photosDisponibles } from "@/lib/donnees";
+import { lireReglages, photosDisponibles } from "@/lib/donnees";
 import { menusDeLaSemaine, tousLesPlats } from "@/lib/donnees-admin";
-import { aujourdhui } from "@/lib/horloge";
-import { estUnJour, lundiDe } from "@/lib/jours";
+import { aujourdhui, maintenant } from "@/lib/horloge";
+import { cloturePassee, clotureLisible, estUnJour, lundiDe } from "@/lib/jours";
 import { exiger } from "@/lib/session";
 import { MenusClient } from "./menus-client";
 
@@ -16,6 +16,10 @@ export default async function PageMenus({ searchParams }: { searchParams: Promis
   await exiger("admin");
   const jour = aujourdhui();
   const lundi = lundiDe(Semaine.parse((await searchParams).semaine) || jour);
-  const [semaine, plats, photos] = await Promise.all([menusDeLaSemaine(lundi), tousLesPlats(), photosDisponibles()]);
-  return <MenusClient aujourdhui={jour} lundi={lundi} semaine={semaine} plats={plats} photos={photos} />;
+  const [semaine, plats, photos, reglages] = await Promise.all([menusDeLaSemaine(lundi), tousLesPlats(), photosDisponibles(), lireReglages()]);
+  // `key` : changer de semaine remet le jour choisi à zéro (aujourd'hui, ou le lundi).
+  return (
+    <MenusClient key={lundi} aujourdhui={jour} lundi={lundi} semaine={semaine} plats={plats} photos={photos}
+      cloture={clotureLisible(reglages.heureCloture)} closAujourdhui={cloturePassee(jour, maintenant(), reglages.heureCloture)} />
+  );
 }

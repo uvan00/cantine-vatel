@@ -4,9 +4,12 @@ import { SChiffresBande, SStatVertical, STitreSection } from "@/components/sneat
 import { tableauDeBord } from "@/lib/donnees-admin";
 import { fcfa, nombre, pluriel } from "@/lib/format";
 import { maintenant } from "@/lib/horloge";
-import { HEURE_CLOTURE_LISIBLE, jourCourt, jourLong } from "@/lib/jours";
+import { clotureLisible, jourCourt, jourLong } from "@/lib/jours";
+import { lireReglages } from "@/lib/donnees";
+import { poidsLisible } from "@/lib/restes";
 import { exiger } from "@/lib/session";
 import { noteLisible, partDeBarre, periode, pourcent } from "@/lib/statistiques";
+import { RelireEnDirect } from "./relire-en-direct";
 import { VignettePlat } from "./vignette-plat";
 
 // Le tableau de bord de la cantine : aujourd'hui en chiffres, la semaine en barres (le seul graphique de la page),
@@ -37,7 +40,8 @@ const fort = (n: number) => <span className="font-semibold text-encre/95">{nombr
 
 export default async function PageTableauDeBord() {
   await exiger("admin");
-  const t = await tableauDeBord(maintenant());
+  const [t, reglages] = await Promise.all([tableauDeBord(maintenant()), lireReglages()]);
+  const cloture = clotureLisible(reglages.heureCloture);
 
   const plusHaut = Math.max(0, ...t.semaine.map((j) => j.repas));
   const totalSemaine = t.semaine.reduce((s, j) => s + j.repas, 0);
@@ -47,7 +51,10 @@ export default async function PageTableauDeBord() {
 
   return (
     <div className="w-full space-y-6">
-      <EnTetePage titre="Tableau de bord" sousTitre={<span className="block first-letter:uppercase">{jourLong(t.aujourdhui)}</span>} />
+      {/* En direct : un ticket servi au comptoir, depuis le site ou l'application mobile, apparaît ici en 5 s au plus. */}
+      <RelireEnDirect />
+      <EnTetePage titre="Tableau de bord" sousTitre={<span className="block first-letter:uppercase">{jourLong(t.aujourdhui)}</span>}
+        actions={<Link href="/admin/rapport" className="hb hb--filet hb--petit">Rapport de la semaine</Link>} />
 
       <SChiffresBande items={[
         { titre: "Réservés aujourd'hui", valeur: nombre(t.service.reserves) },
@@ -92,7 +99,7 @@ export default async function PageTableauDeBord() {
 
           <p className="mt-4 flex items-start gap-2 text-[13px] leading-5 text-texte-2">
             <span aria-hidden="true" className="mt-1 size-3 shrink-0 rounded-[4px] bg-marque" />
-            <span>Aujourd&apos;hui. Les jours à venir peuvent encore monter, on réserve jusqu&apos;à {HEURE_CLOTURE_LISIBLE} le jour même</span>
+            <span>Aujourd&apos;hui. Les jours à venir peuvent encore monter, on réserve jusqu&apos;à {cloture} le jour même</span>
           </p>
         </section>
 
@@ -123,7 +130,7 @@ export default async function PageTableauDeBord() {
                 ))}
               </ol>
               <div className="mt-auto pt-5 text-[13px] leading-5 text-texte-2">
-                <p>Ça peut encore monter jusqu&apos;à demain {HEURE_CLOTURE_LISIBLE}</p>
+                <p>Ça peut encore monter jusqu&apos;à demain {cloture}</p>
                 <Link href="/admin/commandes?jour=demain" className="mt-1 inline-block font-medium text-encre/90 underline underline-offset-4">Voir qui a réservé</Link>
               </div>
             </>
@@ -150,10 +157,17 @@ export default async function PageTableauDeBord() {
           )}
         </section>
 
-        <div className="grid grid-cols-1 gap-4 @2xl/page:grid-cols-3 @4xl/page:grid-cols-1">
-          <SStatVertical title="Repas non retirés"
+        <div className="grid grid-cols-1 gap-4 @2xl/page:grid-cols-2 @4xl/page:grid-cols-1">
+          <SStatVertical title="Repas non retirés" href={t.septJours.nonRetires.nombre > 0 ? "/admin/non-retires" : undefined}
             value={t.septJours.nonRetires.total > 0 ? `${nombre(t.septJours.nonRetires.nombre)} sur ${nombre(t.septJours.nonRetires.total)}` : "0"}
-            hint={part === null ? "Aucun repas réservé sur ces 7 jours" : `${part} % des repas réservés`} />
+            hint={part === null ? "Aucun repas réservé sur ces 7 jours" : t.septJours.nonRetires.nombre > 0 ? `${part} % des repas réservés. Voir qui` : `${part} % des repas réservés`} />
+          <SStatVertical title="Restes pesés"
+            value={t.septJours.restes.parRepas === null ? "Pas encore pesés" : `${poidsLisible(t.septJours.restes.parRepas)} par repas`}
+            hint={t.septJours.restes.parRepas === null
+              ? "Pèse les restes de chaque plat dans Commandes, après le service"
+              : t.septJours.restes.plusLaisse
+                ? `Le plus laissé : ${t.septJours.restes.plusLaisse.nom}, ${poidsLisible(t.septJours.restes.plusLaisse.parRepas)} par repas`
+                : `${poidsLisible(t.septJours.restes.grammes)} pour ${repas(t.septJours.restes.servis)} servis`} />
           <SStatVertical title="Recharges confirmées" value={fcfa(t.septJours.recharges)}
             hint={<span className="chiffres">Aujourd&apos;hui : {fcfa(t.rechargesAujourdhui)}</span>} />
           <SStatVertical title="Note moyenne des plats"

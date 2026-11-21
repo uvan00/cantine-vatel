@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { Avatar } from "@/components/avatar";
 import { EnTetePage, Fenetre } from "@/components/fenetre";
 import { CheckCircle2, Coins, Info } from "@/components/icons";
 import { SAlert, SBtn, SChip, SRecherche, STable, STd, STitreSection, STr } from "@/components/sneat";
@@ -30,8 +31,8 @@ export function RechargesClient({ initial }: { initial: VueRecharges }) {
         actions={<SBtn tone="secondary" onClick={() => setEspeces(true)}><Coins className="size-5" strokeWidth={1.8} /><span>Recharge en espèces</span></SBtn>} />
 
       <SAlert Icon={Info}>
-        Les paiements Mobile Money passés par Cartflox se créditent tout seuls. Pour le QR universel, regarde d&apos;abord sur le compte de la cantine
-        que l&apos;argent est bien arrivé, avec la même référence et le même montant, puis dis « Paiement reçu ».
+        Les paiements Mobile Money passés par Cartflox se créditent tout seuls. Pour une demande réglée en espèces au comptoir, encaisse
+        d&apos;abord, vérifie la référence et le montant, puis dis « Paiement reçu ». Sans demande, passe par « Recharge en espèces ».
       </SAlert>
 
       {donnees.aVerifier.length > 0 && (
@@ -83,7 +84,7 @@ export function RechargesClient({ initial }: { initial: VueRecharges }) {
                 {donnees.dernieres.map((r) => (
                   <STr key={r.id}>
                     <STd className="font-mono whitespace-nowrap text-encre/90">{r.reference}</STd>
-                    <STd className="font-medium text-encre/95">{r.beneficiaire}</STd>
+                    <STd className="font-medium text-encre/95"><span className="flex items-center gap-2"><Avatar id={r.beneficiaireId} nom={r.beneficiaire} photo={r.photo} taille={24} />{r.beneficiaire}</span></STd>
                     <STd className="chiffres whitespace-nowrap font-medium text-encre/95">{fcfa(r.montant)}</STd>
                     <STd className="whitespace-nowrap">{LIBELLE_MOYEN[r.moyen]}</STd>
                     <STd><EtatRecharge r={r} /></STd>
@@ -96,7 +97,7 @@ export function RechargesClient({ initial }: { initial: VueRecharges }) {
               {donnees.dernieres.map((r) => (
                 <li key={r.id} className="flex items-center justify-between gap-3 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-[14px] leading-5 font-semibold text-encre/95">{r.beneficiaire}</p>
+                    <p className="flex min-w-0 items-center gap-2 text-[14px] leading-5 font-semibold text-encre/95"><Avatar id={r.beneficiaireId} nom={r.beneficiaire} photo={r.photo} taille={24} /><span className="truncate">{r.beneficiaire}</span></p>
                     <p className="truncate text-[13px] leading-5 text-texte-2"><span className="font-mono text-encre/80">{r.reference}</span>, {LIBELLE_MOYEN[r.moyen]}</p>
                     <p className="chiffres truncate text-[13px] leading-5 text-texte-2">{quand(r.quand, donnees.maintenant)}</p>
                   </div>
@@ -154,7 +155,7 @@ function LigneEnAttente({ r, maintenant, onFait }: { r: VueRechargeEnAttente; ma
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <span className="grid h-12 w-[88px] shrink-0 place-items-center rounded-[12px] bg-[color:var(--h-surface)] font-mono text-[15px] font-medium text-encre/90">{r.reference}</span>
         <div className="min-w-0 flex-1 basis-[180px]">
-          <p className="truncate text-[15px] leading-5 font-semibold text-encre/95">{r.beneficiaire}</p>
+          <p className="flex min-w-0 items-center gap-2 text-[15px] leading-5 font-semibold text-encre/95"><Avatar id={r.beneficiaireId} nom={r.beneficiaire} photo={r.photo} taille={24} /><span className="truncate">{r.beneficiaire}</span></p>
           <p className="text-[13px] leading-5 text-texte-2">{r.groupe}{r.demandeur ? `, demandée par ${r.demandeur}` : ""}</p>
           {cartflox && <p className="mt-1"><SChip tone={cartflox.ton} size="sm">{cartflox.texte}</SChip></p>}
         </div>
@@ -201,7 +202,7 @@ function LigneAVerifier({ p, onFait }: { p: VuePaiementAVerifier; onFait: (messa
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <span className="grid h-12 w-[88px] shrink-0 place-items-center rounded-[12px] bg-[color:var(--h-surface)] font-mono text-[15px] font-medium text-encre/90">{p.reference}</span>
         <div className="min-w-0 flex-1 basis-[220px]">
-          <p className="truncate text-[15px] leading-5 font-semibold text-encre/95">{p.beneficiaire}</p>
+          <p className="flex min-w-0 items-center gap-2 text-[15px] leading-5 font-semibold text-encre/95"><Avatar id={p.beneficiaireId} nom={p.beneficiaire} photo={p.photo} taille={24} /><span className="truncate">{p.beneficiaire}</span></p>
           <p className="text-[13px] leading-5 text-texte-2">{p.remarque}</p>
           <p className="font-mono text-[12px] leading-5 text-texte-2">Paiement Cartflox {p.sessionId}</p>
         </div>
@@ -301,6 +302,7 @@ function FenetreEspeces({ onClose, onFait }: { onClose: () => void; onFait: () =
           <p className="mb-2 pl-0.5 text-[14px] leading-5 font-semibold text-encre/95">Le convive</p>
           {convive ? (
             <div className="flex items-center gap-3 rounded-[12px] p-3 shadow-[0_0_0_1px_var(--h-filet)]">
+              <Avatar id={convive.id} nom={convive.nom} photo={convive.photo} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[15px] leading-5 font-semibold text-encre/95">{convive.nom}</p>
                 <p className="chiffres truncate text-[13px] leading-5 text-texte-2">{convive.groupe}, solde de {fcfa(convive.solde)}</p>
@@ -322,9 +324,12 @@ function FenetreEspeces({ onClose, onFait }: { onClose: () => void; onFait: () =
                     <li key={c.id}>
                       <button type="button" onClick={() => setConvive(c)}
                         className="-mx-2 flex w-[calc(100%+16px)] items-center justify-between gap-3 rounded-[12px] px-2 py-2 text-left transition-colors hover:bg-[color:var(--h-filet-doux)] focus-visible:outline-2 focus-visible:outline-[rgb(var(--h-marque-texte))]">
-                        <span className="min-w-0">
+                        <span className="flex min-w-0 items-center gap-3">
+                          <Avatar id={c.id} nom={c.nom} photo={c.photo} taille={32} />
+                          <span className="min-w-0">
                           <span className="block truncate text-[14px] leading-5 font-semibold text-encre/95">{c.nom}</span>
                           <span className="block truncate text-[13px] leading-5 text-texte-2">{c.groupe}</span>
+                          </span>
                         </span>
                         <span className="chiffres shrink-0 text-[13px] leading-5 text-texte-2">{fcfa(c.solde)}</span>
                       </button>

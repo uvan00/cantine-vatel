@@ -1,18 +1,45 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { EtiquettesAliments } from "@/components/allergene";
+import { Avatar } from "@/components/avatar";
 import { useRouter } from "next/navigation";
 import { EnTetePage } from "@/components/fenetre";
 import { AlertTriangle, Ban, Camera, CheckCircle2 } from "@/components/icons";
 import { SBtn, SChargement } from "@/components/sneat";
-import type { VueTicket } from "@/lib/donnees-admin";
+import { creneauLisible } from "@/lib/creneaux";
+import type { TicketLocal, VueTicket } from "@/lib/donnees-admin";
+import type { Etiquette } from "@/lib/listes";
 import { nombre } from "@/lib/format";
+import { jourIso } from "@/lib/jours";
+import { scanner as verdictScan } from "@/lib/reservation";
 import type { ChiffresService } from "@/lib/statistiques";
-import { nettoyerCode } from "@/lib/ticket";
-import { servirTicket, type ReponseService } from "../actions";
+import { lireCle, nettoyerCode } from "@/lib/ticket";
+import { servirALaBorne } from "@/app/borne/actions";
+import { servirEnRetard, servirTicket, type ReponseEnRetard, type ReponseService } from "../actions";
 
 // Le scanner du comptoir : la caméra arrière lit le QR du ticket, le serveur répond, la réponse s'affiche en grand.
 // Le champ « Code du ticket » reste toujours là : la caméra peut manquer, être refusée, ou demander une adresse en https.
+// Sans réseau (le pointage continue hors ligne), il sert d'après sa copie des tickets du
+// jour, avec la même règle, et envoie ces services au serveur dès le retour du réseau. En borne (/borne :
+// l'élève pointe lui-même à l'entrée), il accueille l'élève par son prénom.
+
+/** La copie des tickets du jour et la file des services faits hors ligne, gardées sur l'appareil de la cantine. */
+const CLE_TICKETS = "cantine.tickets";
+const CLE_FILE = "cantine.file";
+type EnAttente = { cle: string; instant: number };
+
+const lireStockage = <T,>(cle: string, defaut: T): T => {
+  try { return JSON.parse(localStorage.getItem(cle) ?? "") as T; } catch { return defaut; }
+};
+
+/** La file des services hors ligne, lue dans le stockage de l'appareil : la même pour toutes les parties de l'écran. */
+const abonnesFile = new Set<() => void>();
+const fileStockee = {
+  lire: () => localStorage.getItem(CLE_FILE) ?? "[]",
+  ecrire: (liste: EnAttente[]) => { localStorage.setItem(CLE_FILE, JSON.stringify(liste)); abonnesFile.forEach((f) => f()); },
+  abonner: (f: () => void) => { abonnesFile.add(f); return () => { abonnesFile.delete(f); }; },
+};
 
 /** Entre deux lectures de l'image : quelques fois par seconde suffisent, et le téléphone ne chauffe pas. */
 const PAUSE_ENTRE_LECTURES_MS = 200;
@@ -77,7 +104,8 @@ async function lireQr(video: HTMLVideoElement, lecteur: Lecteur): Promise<string
 type EtatCamera = "attente" | "prete" | "sans_https" | "refusee" | "absente" | "panne";
 /** lecture : on cherche un QR ; envoi : le serveur vérifie ; reponse : la réponse en grand ; ticket : un ticket ouvert par son adresse. */
 type Phase = "lecture" | "envoi" | "reponse" | "ticket";
-type Reponse = ReponseService | { genre: "panne"; phrase: string; convive?: undefined; prenom?: undefined; plat?: undefined; service?: undefined };
+type Reponse = (ReponseService & { horsLigne?: boolean })
+  | { genre: "panne"; phrase: string; convive?: undefined; conviveId?: undefined; photo?: undefined; prenom?: undefined; plat?: undefined; service?: undefined; creneau?: undefined; allergies?: undefined; enCause?: undefined; voirLaCantine?: undefined; horsLigne?: undefined };
 type Ton = "reussite" | "attention" | "erreur";
 
 /** Le ticket désigné par l'adresse de la page (`?cle=`), ou « inconnu » si rien ne correspond. */
@@ -106,26 +134,106 @@ const SANS_CAMERA: Record<Exclude<EtatCamera, "attente" | "prete">, string> = {
   panne: "La caméra ne répond pas : recharge la page, ou tape le code du ticket",
 };
 
-export function ScannerClient({ service: serviceInitial, ticket }: { service: ChiffresService; ticket: TicketOuvert | null }) {
+export function ScannerClient({ service: serviceInitial, ticket, borne = false }: { service: ChiffresService; ticket: TicketOuvert | null; /** L'écran de la borne d'entrée (/borne). */ borne?: boolean }) {
   const router = useRouter();
   const video = useRef<HTMLVideoElement>(null);
   const lecteur = useRef<Lecteur>({});
   const dernierQr = useRef({ texte: "", quand: 0 });
   const champCode = useRef<HTMLInputElement>(null);
   const [camera, setCamera] = useState<EtatCamera>("attente");
+  // Chaque demande d'accès rouvre la caméra : le bouton « Demander l'accès à la caméra », ou l'autorisation donnée
+  // ensuite dans les réglages du navigateur. `refusDefinitif` : le navigateur a gardé un refus et ne reposera pas la question.
+  const [essaiCamera, setEssaiCamera] = useState(0);
+  const [refusDefinitif, setRefusDefinitif] = useState(false);
+  const redemanderCamera = () => { setCamera("attente"); setEssaiCamera((n) => n + 1); };
   const [phase, setPhase] = useState<Phase>(ticket ? "ticket" : "lecture");
   const [reponse, setReponse] = useState<Reponse | null>(null);
   const [service, setService] = useState(serviceInitial);
   const [code, setCode] = useState("");
+  const tickets = useRef<{ jour: string; liste: TicketLocal[] }>({ jour: "", liste: [] });
+  const fileBrute = useSyncExternalStore(fileStockee.abonner, fileStockee.lire, () => "[]");
+  const file = useMemo<EnAttente[]>(() => { try { return JSON.parse(fileBrute) as EnAttente[]; } catch { return []; } }, [fileBrute]);
+  const [horsLigne, setHorsLigne] = useState(false);
+  const [aVerifier, setAVerifier] = useState<ReponseEnRetard[]>([]);
 
-  /** Demande au serveur de servir ce ticket, puis montre sa réponse en grand. */
+  // La copie des tickets du jour : relue sur l'appareil à l'arrivée, puis rafraîchie chaque minute tant que le réseau répond.
+  useEffect(() => {
+    // La borne ne garde aucune copie des tickets : tournée vers la file, elle n'a ni les jetons ni les allergies des
+    // autres sur l'appareil, et elle attend le réseau. Une copie laissée là par le scanner s'en va.
+    if (borne) { localStorage.removeItem(CLE_TICKETS); return; }
+    tickets.current = lireStockage(CLE_TICKETS, { jour: "", liste: [] as TicketLocal[] });
+    const rafraichir = async () => {
+      try {
+        const r = await fetch("/api/admin/tickets-du-jour", { cache: "no-store" });
+        if (!r.ok) return;
+        const d = (await r.json()) as { jour: string; tickets: TicketLocal[] };
+        // Un service fait hors ligne et pas encore envoyé reste « servi » sur l'appareil.
+        const enAttente = new Set(lireStockage<EnAttente[]>(CLE_FILE, []).map((e) => e.cle));
+        const liste = d.tickets.map((t) => (enAttente.has(t.jeton) || enAttente.has(t.code) ? { ...t, etat: "servie", serviLe: t.serviLe ?? new Date().toISOString() } : t));
+        tickets.current = { jour: d.jour, liste };
+        localStorage.setItem(CLE_TICKETS, JSON.stringify(tickets.current));
+      } catch {
+        // Pas de réseau : on garde la copie qu'on a.
+      }
+    };
+    void rafraichir();
+    const minuterie = window.setInterval(() => { if (navigator.onLine) void rafraichir(); }, 60_000);
+    return () => window.clearInterval(minuterie);
+  }, [borne]);
+
+  /** Servir d'après la copie du jour, quand le serveur ne répond pas. null : rien à dire sans réseau. */
+  const servirHorsLigne = (cle: string): Reponse | null => {
+    const lue = lireCle(cle);
+    const copie = tickets.current;
+    if (!lue || copie.jour !== jourIso(Date.now())) return null;
+    // Une carte de cantine désigne le repas du jour de son élève (un ticket non annulé).
+    const t = copie.liste.find((x) => ("jeton" in lue ? x.jeton === lue.jeton : "carte" in lue ? x.carte === lue.carte && x.etat !== "annulee" : x.code === lue.code));
+    if (!t) return { genre: "inconnu", phrase: "carte" in lue ? "Pas de repas aujourd'hui pour cette carte, d'après cet appareil" : "Ticket inconnu de cet appareil", horsLigne: true };
+    const v = verdictScan({ etat: t.etat, jour: t.jour, serviLe: t.serviLe }, Date.now());
+    if (v.genre === "servi") {
+      t.etat = "servie";
+      t.serviLe = new Date().toISOString();
+      localStorage.setItem(CLE_TICKETS, JSON.stringify(copie));
+      // La file garde toujours le jeton du ticket : le serveur le relit sans ambiguïté, même lu par une carte.
+      fileStockee.ecrire([...lireStockage<EnAttente[]>(CLE_FILE, []), { cle: t.jeton, instant: Date.now() }]);
+    }
+    const prenom = t.convive.split(/\s+/)[0];
+    return { genre: v.genre, phrase: v.phrase, convive: t.convive, conviveId: t.conviveId, photo: t.photo, prenom, plat: t.plat, creneau: t.creneau, code: t.code, allergies: t.allergies ?? [], enCause: t.enCause ?? [], horsLigne: true };
+  };
+
+  // Le retour du réseau : les services faits hors ligne partent au serveur ; ce qu'il refuse est à vérifier.
+  const envoyerLaFile = useEffectEvent(async () => {
+    // La file des services hors ligne est celle du scanner de la cantine : la borne ne l'envoie pas.
+    if (borne || file.length === 0 || !navigator.onLine) return;
+    const lot = file;
+    let res: ReponseEnRetard[] | null;
+    try { res = await servirEnRetard(lot); } catch { return; }
+    if (res === null) return;
+    setHorsLigne(false);
+    fileStockee.ecrire(lireStockage<EnAttente[]>(CLE_FILE, []).slice(lot.length));
+    const refus = res.filter((x) => x.genre !== "servi");
+    if (refus.length > 0) setAVerifier((avant) => [...avant, ...refus]);
+  });
+  useEffect(() => {
+    const essayer = () => { void envoyerLaFile(); };
+    window.addEventListener("online", essayer);
+    const minuterie = window.setInterval(essayer, 10_000);
+    return () => { window.removeEventListener("online", essayer); window.clearInterval(minuterie); };
+  }, []);
+
+  /** Demande au serveur de servir ce ticket, puis montre sa réponse en grand. Sans réseau : d'après la copie du jour. */
   const envoyer = async (cle: string) => {
     setPhase("envoi");
     let r: Reponse;
     try {
-      r = await servirTicket(cle);
+      if (!navigator.onLine) throw new Error("hors ligne");
+      r = borne ? await servirALaBorne(cle) : await servirTicket(cle);
+      setHorsLigne(false);
     } catch {
-      r = { genre: "panne", phrase: "Le réseau ne répond pas, réessaie" };
+      setHorsLigne(true);
+      r = borne
+        ? { genre: "panne", phrase: "Pas de réseau, passe au comptoir avec ton ticket" }
+        : servirHorsLigne(cle) ?? { genre: "panne", phrase: "Le réseau ne répond pas, réessaie" };
     }
     // Le serveur n'a rien pu dire de ce ticket : le même QR doit pouvoir être relu tout de suite.
     if (r.genre === "panne" || r.genre === "refuse") dernierQr.current = { texte: "", quand: 0 };
@@ -164,6 +272,21 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
     };
     void ouvrir();
     return () => { quitte = true; flux?.getTracks().forEach((piste) => piste.stop()); };
+  }, [essaiCamera]);
+
+  // Le navigateur garde un refus : redemander ne rouvre pas sa question. On le dit, et la caméra se rouvre toute seule
+  // dès que l'autorisation est donnée dans ses réglages.
+  const surAutorisation = useEffectEvent((etat: PermissionState) => {
+    setRefusDefinitif(etat === "denied");
+    if (etat === "granted" && camera !== "prete") redemanderCamera();
+  });
+  useEffect(() => {
+    let statut: PermissionStatus | null = null;
+    const suivre = () => { if (statut) surAutorisation(statut.state); };
+    navigator.permissions?.query({ name: "camera" as PermissionName })
+      .then((s) => { statut = s; setRefusDefinitif(s.state === "denied"); s.addEventListener("change", suivre); })
+      .catch(() => { /* Navigateur sans cette question : le bouton suffit. */ });
+    return () => statut?.removeEventListener("change", suivre);
   }, []);
 
   const surQr = useEffectEvent((texte: string) => { void envoyer(texte); });
@@ -193,12 +316,13 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
     return () => { arret = true; window.clearTimeout(minuterie); };
   }, [camera, phase]);
 
-  // Avec la caméra, la réponse laisse la place au ticket suivant après 2,5 secondes. Sans elle, elle reste.
+  // Avec la caméra, la réponse laisse la place au ticket suivant après 2,5 secondes (4 à la borne). Sans elle, elle
+  // reste, sauf à la borne : l'élève suivant tape son code.
   useEffect(() => {
-    if (phase !== "reponse" || camera !== "prete") return;
-    const minuterie = window.setTimeout(() => setPhase("lecture"), REPRISE_MS);
+    if (phase !== "reponse" || (camera !== "prete" && !borne)) return;
+    const minuterie = window.setTimeout(() => setPhase("lecture"), borne ? 4000 : REPRISE_MS);
     return () => window.clearTimeout(minuterie);
-  }, [phase, camera]);
+  }, [phase, camera, borne]);
 
   const valider = (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,17 +335,37 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
 
   return (
     <div className="w-full space-y-6">
-      <EnTetePage titre="Scanner" sousTitre={
-        <span className="chiffres flex flex-wrap items-baseline gap-x-5 gap-y-1">
-          <span><span className="text-[20px] leading-7 font-semibold text-encre/95">{nombre(service.servis)}</span> {service.servis > 1 ? "servis" : "servi"}</span>
-          <span><span className="text-[20px] leading-7 font-semibold text-marque-texte">{nombre(service.aServir)}</span> à servir aujourd&apos;hui</span>
-        </span>
-      } />
+      {borne ? (
+        <EnTetePage titre="Bon appétit à la cantine" sousTitre="Présente le QR de ton ticket devant la caméra, ou tape son code" />
+      ) : (
+        <EnTetePage titre="Scanner" sousTitre={
+          <span className="chiffres flex flex-wrap items-baseline gap-x-5 gap-y-1">
+            <span><span className="text-[20px] leading-7 font-semibold text-encre/95">{nombre(service.servis)}</span> {service.servis > 1 ? "servis" : "servi"}</span>
+            <span><span className="text-[20px] leading-7 font-semibold text-marque-texte">{nombre(service.aServir)}</span> à servir aujourd&apos;hui</span>
+          </span>
+        } />
+      )}
+
+      {(horsLigne || file.length > 0) && (
+        <p role="status" className="chiffres rounded-[12px] bg-[rgb(var(--h-alerte-teinte)/0.15)] px-4 py-3 text-[14px] leading-5 text-encre/95">
+          {horsLigne ? (borne ? "Pas de réseau : la borne attend, passe au comptoir avec ton ticket" : "Hors ligne : le scanner sert d'après sa copie des tickets du jour") : "Le réseau est revenu"}
+          {file.length > 0 && `, ${file.length} ${file.length > 1 ? "services partiront" : "service partira"} au serveur dès que possible`}
+        </p>
+      )}
+      {aVerifier.length > 0 && (
+        <div className="rounded-[12px] border border-[color:var(--h-filet)] px-4 py-3 text-[14px] leading-5">
+          <p className="font-semibold text-encre/95">À vérifier : servis hors ligne, refusés par le serveur</p>
+          <ul className="mt-1 space-y-1 text-texte-2">
+            {aVerifier.map((x, i) => <li key={`${x.cle}-${i}`}>{x.convive ?? x.cle} : {x.phrase}</li>)}
+          </ul>
+          <SBtn size="sm" variant="text" tone="secondary" className="mt-1" onClick={() => setAVerifier([])}>C&apos;est vu</SBtn>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-6 @4xl/page:grid-cols-[minmax(0,520px)_minmax(0,400px)] @4xl/page:gap-8">
         <div>
           {/* L'image de la caméra ne se montre que pendant la lecture : sous une réponse, son fond sombre baverait dans les coins. */}
-          <div className={`relative aspect-square overflow-hidden rounded-[24px] @xl/page:aspect-[4/3] ${enDirect ? "bg-[#1c1c1c]" : "bg-[color:var(--h-surface)]"}`}>
+          <div className={`relative aspect-square overflow-clip rounded-[24px] @xl/page:aspect-[4/3] ${enDirect ? "bg-[#1c1c1c]" : "bg-[color:var(--h-surface)]"}`}>
             <video ref={video} playsInline muted aria-label="Image de la caméra" className={`absolute inset-0 size-full object-cover ${enDirect ? "" : "invisible"}`} />
 
             {enDirect && (
@@ -240,6 +384,16 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
                   <p className="mx-auto mt-4 max-w-[320px] text-[16px] leading-6 text-encre/90">
                     {camera === "attente" ? "On ouvre la caméra : autorise-la si ton téléphone le demande" : SANS_CAMERA[camera]}
                   </p>
+                  {(camera === "refusee" || camera === "panne") && (
+                    <>
+                      <button type="button" onClick={redemanderCamera} className="hb hb--filet hb--petit mt-4">Demander l&apos;accès à la caméra</button>
+                      {camera === "refusee" && refusDefinitif && (
+                        <p className="mx-auto mt-3 max-w-[320px] text-[13px] leading-5 text-texte-2">
+                          Le navigateur a gardé ton refus : touche le cadenas ou l&apos;icône de caméra à côté de l&apos;adresse, autorise la caméra, et elle s&apos;ouvre toute seule
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -255,7 +409,7 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
 
             {/* La réponse, en grand : la zone existe toujours, pour qu'un lecteur d'écran l'annonce quand elle se remplit. */}
             <div aria-live="assertive" aria-atomic="true">
-              {phase === "reponse" && reponse && <GrandeReponse reponse={reponse} />}
+              {phase === "reponse" && reponse && <GrandeReponse reponse={reponse} borne={borne} />}
             </div>
 
             {phase === "ticket" && ticket && (
@@ -273,7 +427,7 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
         </div>
 
         <form onSubmit={valider} noValidate>
-          <label htmlFor="code-ticket" className="mb-2 block pl-0.5 text-[14px] leading-5 font-semibold text-encre/95">Code du ticket</label>
+          <label htmlFor="code-ticket" className="mb-2 block pl-0.5 text-[14px] leading-5 font-semibold text-encre/95">{borne ? "Ou tape le code de ton ticket" : "Code du ticket"}</label>
           <div className="flex gap-2">
             {/* Le champ du kit (classe h-champ), écrit ici pour pouvoir y remettre le curseur après une réponse. */}
             <input ref={champCode} id="code-ticket" name="code" value={code} onChange={(e) => setCode(nettoyerCode(e.target.value).slice(0, 6))}
@@ -295,18 +449,59 @@ export function ScannerClient({ service: serviceInitial, ticket }: { service: Ch
 
 /* ── La réponse du comptoir ────────────────────────────────────────────────── */
 
-function GrandeReponse({ reponse }: { reponse: Reponse }) {
+function GrandeReponse({ reponse, borne }: { reponse: Reponse; borne: boolean }) {
   const { fond, encre, Icone } = HABIT[TON[reponse.genre]];
+  // À la borne, l'élève servi est accueilli par son prénom.
+  const phrase = borne && reponse.genre === "servi" && reponse.prenom ? `Bon appétit, ${reponse.prenom}` : reponse.phrase;
   return (
-    <div className="absolute inset-0 bg-surface">
-      <div className="absolute inset-0 grid place-items-center p-6 text-center" style={{ background: fond }}>
+    // Dans le flux, à la même proportion que le cadre : si la réponse est plus haute (un convive aux nombreuses
+    // allergies, sur un téléphone), le cadre grandit au lieu de la couper.
+    <div className="relative bg-surface">
+      <div className="grid aspect-square place-items-center p-6 text-center @xl/page:aspect-[4/3]" style={{ background: fond }}>
         <div className="min-w-0">
           <Icone className="mx-auto size-12" strokeWidth={1.8} style={{ color: encre }} />
-          <p className="mt-4 text-[32px] leading-10 font-semibold text-encre/95 @xl/page:text-[40px] @xl/page:leading-[48px]">{reponse.phrase}</p>
-          {reponse.convive && <p className="mt-3 text-[24px] leading-8 font-semibold text-encre/95">{reponse.genre === "servi" ? reponse.prenom : reponse.convive}</p>}
-          {reponse.plat && <p className="mt-1 text-[16px] leading-6 text-encre/75">{reponse.plat}</p>}
+          <p className="mt-4 text-[32px] leading-10 font-semibold text-encre/95 @xl/page:text-[40px] @xl/page:leading-[48px]">{phrase}</p>
+          {reponse.convive && (
+            <div className="mt-4 flex flex-col items-center gap-2">
+              {reponse.conviveId && <Avatar id={reponse.conviveId} nom={reponse.convive} photo={reponse.photo} taille={72} />}
+              <p className="text-[24px] leading-8 font-semibold text-encre/95">{reponse.genre === "servi" ? reponse.prenom : reponse.convive}</p>
+            </div>
+          )}
+          {reponse.plat && <p className="mt-1 text-[16px] leading-6 text-encre/75">{reponse.plat}{reponse.creneau ? `, passage à ${creneauLisible(reponse.creneau)}` : ""}</p>}
+          {/* Pas à la borne : elle est tournée vers la file, et l'allergie d'un élève ne regarde que lui et la cantine. */}
+          {!borne && reponse.convive && <Allergies etiquettes={reponse.allergies ?? []} enCause={reponse.enCause ?? []} />}
+          {borne && reponse.voirLaCantine && <p className="mt-3 text-[20px] leading-7 font-semibold text-encre/95">Passe d&apos;abord voir la cantine avec ton ticket</p>}
+          {reponse.horsLigne && <p className="mt-2 text-[13px] leading-5 text-encre/60">Hors ligne : envoyé au serveur dès le retour du réseau</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Ce à quoi ce convive est allergique, posé calmement sous son plat. Rien s'il n'a déclaré aucun allergène.
+ * `enCause` : ce que CE plat contient et qu'il ne mange pas. Réserver l'aurait refusé ; si le cas se présente quand
+ * même (profil réglé après, plat modifié), il passe devant, encadré : à vérifier avant de servir.
+ */
+function Allergies({ etiquettes, enCause = [] }: { etiquettes: Etiquette[]; enCause?: Etiquette[] }) {
+  if (etiquettes.length === 0 && enCause.length === 0) return null;
+  return (
+    <div className="mx-auto mt-4 w-fit max-w-full space-y-2">
+      {enCause.length > 0 && (
+        <div role="alert" className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-[16px] bg-surface px-4 py-3" style={{ boxShadow: `inset 0 0 0 2px ${HABIT.attention.encre}` }}>
+          <span className="flex items-center gap-2 text-[15px] leading-6 font-semibold text-encre/95">
+            <AlertTriangle className="size-5 shrink-0" strokeWidth={1.8} style={{ color: HABIT.attention.encre }} aria-hidden="true" />
+            Ce plat ne convient pas à son profil, vérifie avant de servir
+          </span>
+          <EtiquettesAliments etiquettes={enCause} taille={28} className="justify-center text-[15px] leading-6 text-encre/90" />
+        </div>
+      )}
+      {etiquettes.length > 0 && (
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-[16px] bg-surface px-4 py-3 shadow-[inset_0_0_0_1px_var(--h-filet)]">
+          <span className="text-[15px] leading-6 font-semibold text-encre/95">Allergique</span>
+          <EtiquettesAliments etiquettes={etiquettes} taille={28} className="justify-center text-[15px] leading-6 text-encre/90" />
+        </div>
+      )}
     </div>
   );
 }
@@ -336,6 +531,7 @@ function TicketTrouve({ ticket, onServir, onLaisser }: { ticket: TicketOuvert; o
         <p className="text-[14px] leading-5 text-texte-2">Ticket pour {ticket.quand}</p>
         <p className="mt-2 text-[28px] leading-9 font-semibold text-encre/95">{ticket.convive}</p>
         <p className="mt-1 text-[16px] leading-6 text-encre/75">{ticket.plat}</p>
+        <Allergies etiquettes={ticket.allergies} enCause={ticket.enCause} />
         <p className="mt-2 font-mono text-[16px] leading-6 tracking-[0.2em] text-encre/80">{ticket.code}</p>
         {servable ? (
           <div className="mt-6 flex flex-col items-center gap-2">

@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { DessinAliment, TuileAliment } from "@/components/allergene";
 import { Fenetre, Tiroir } from "@/components/fenetre";
 import { Check } from "@/components/icons";
 import { PhotoPlat } from "@/components/photo-plat";
-import { SBtn, SCheckbox, SField, SInput, SSelect, SSwitch, STabs, STextarea } from "@/components/sneat";
+import { SBtn, SField, SInput, SSelect, SSwitch, STabs, STextarea } from "@/components/sneat";
 import type { VueMenuJour, VuePlat } from "@/lib/donnees-admin";
 import { fcfa, pluriel } from "@/lib/format";
 import { jourLong } from "@/lib/jours";
-import { ALLERGENES } from "@/lib/listes";
+import { ETIQUETTE_PORC, etiquettesAllergenes, etiquettesRegimes, IDS_ALLERGENES, type Etiquette } from "@/lib/listes";
 import { DESCRIPTION_MAX, NOM_MAX, PORTIONS_MAX, PRIX_MAX, PRIX_MIN, portionsValables, prixValable } from "@/lib/menu";
+import { causesEnMots, etiquetteDeCause, type Ecartes } from "@/lib/profil-alimentaire";
 import { ajouterPlatAuMenu, creerPlatAuMenu, enregistrerMenuJour, enregistrerPlat, retirerPlatDuMenu, type Retour, type SaisiePlat } from "./actions";
 
 // Les fenêtres de la page des menus : ajouter un plat à un jour, régler un plat du jour, corriger la fiche d'un plat.
@@ -20,6 +22,48 @@ const AIDE_PORTIONS = "Laisse vide s'il n'y a pas de limite";
 const chiffres = (texte: string) => texte.replace(/\D/g, "").replace(/^0+/, "");
 const nombreOuRien = (texte: string) => (texte === "" ? null : Number(texte));
 const prixSaisi = (texte: string) => (texte !== "" && prixValable(Number(texte)) ? Number(texte) : null);
+
+/**
+ * « Pas pour 4 convives : arachide 3, végétarien 1 », « Pas pour 2 convives : arachide », ou « Il convient à tous les
+ * convives » (d'après leur profil alimentaire).
+ */
+export const ecartesEnMots = (e: Ecartes) =>
+  e.total === 0 ? "Il convient à tous les convives"
+    : `Pas pour ${pluriel(e.total, "convive")} : ${e.causes.length === 1 ? e.causes[0].cause : causesEnMots(e.causes)}`;
+
+/**
+ * La même phrase, avec le dessin de chaque cause à côté de son nom et de son nombre. Un lecteur d'écran lit la phrase
+ * en mots (`ecartesEnMots`) ; les yeux lisent les dessins.
+ */
+export function EcartesEnImages({ ecartes, className = "" }: { ecartes: Ecartes; className?: string }) {
+  if (ecartes.total === 0) return <span className={`block ${className}`}>{ecartesEnMots(ecartes)}</span>;
+  const seule = ecartes.causes.length === 1;
+  return (
+    <span className={`block ${className}`}>
+      <span className="sr-only">{ecartesEnMots(ecartes)}</span>
+      <span aria-hidden="true" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span>Pas pour {pluriel(ecartes.total, "convive")} :</span>
+        {ecartes.causes.map((c) => {
+          const etiquette = etiquetteDeCause(c.cause);
+          return (
+            <span key={c.cause} className="inline-flex items-center gap-1.5">
+              {etiquette && <DessinAliment image={etiquette.image} taille={20} />}
+              <span>{c.cause}{seule ? "" : ` ${c.nombre.toLocaleString("fr-FR")}`}</span>
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+
+/** Le régime que déclare un plat, en étiquette : « Végétarien » ou « Contient du porc ». Null s'il n'en déclare aucun. */
+export const etiquetteDuRegime = (p: { porc: boolean; vegetarien: boolean }): Etiquette | null =>
+  p.vegetarien ? REGIME_VEGETARIEN : p.porc ? REGIME_PORC : null;
+
+const REGIME_VEGETARIEN: Etiquette = { ...etiquettesRegimes(["vegetarien"])[0], nom: "Végétarien" };
+const REGIME_PORC: Etiquette = { ...ETIQUETTE_PORC, nom: "Contient du porc" };
+const TOUS_LES_ALLERGENES = etiquettesAllergenes(IDS_ALLERGENES);
 
 /** « 12 réservés sur 40 », « 23 réservés » */
 export const reservesEnMots = (m: { reservees: number; portions: number | null }) =>
@@ -79,19 +123,19 @@ function ChampsPlat({ fiche, onChange, photos }: { fiche: FichePlat; onChange: (
 
       <fieldset>
         <legend className="mb-3 pl-0.5 text-[14px] leading-5 font-semibold text-encre/95">Allergènes</legend>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          {ALLERGENES.map((a) => (
-            <SCheckbox key={a.id} checked={fiche.allergenes.includes(a.id)} onChange={(coche) => cocher(a.id, coche)}
-              label={<span className="inline-block first-letter:uppercase">{a.nom}</span>} />
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {TOUS_LES_ALLERGENES.map((a) => (
+            <TuileAliment key={a.id} etiquette={a} coche={fiche.allergenes.includes(a.id)} onChange={(coche) => cocher(a.id, coche)} />
           ))}
         </div>
       </fieldset>
 
       <fieldset>
         <legend className="mb-3 pl-0.5 text-[14px] leading-5 font-semibold text-encre/95">Régimes</legend>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <SCheckbox checked={fiche.porc} onChange={(porc) => onChange({ ...fiche, porc, vegetarien: porc ? false : fiche.vegetarien })} label="Contient du porc" />
-          <SCheckbox checked={fiche.vegetarien} onChange={(vegetarien) => onChange({ ...fiche, vegetarien, porc: vegetarien ? false : fiche.porc })} label="Végétarien" />
+        {/* L'un exclut l'autre : cocher « végétarien » décoche « contient du porc », et l'inverse. */}
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          <TuileAliment etiquette={REGIME_PORC} coche={fiche.porc} onChange={(porc) => onChange({ ...fiche, porc, vegetarien: porc ? false : fiche.vegetarien })} />
+          <TuileAliment etiquette={REGIME_VEGETARIEN} coche={fiche.vegetarien} onChange={(vegetarien) => onChange({ ...fiche, vegetarien, porc: vegetarien ? false : fiche.porc })} />
         </div>
       </fieldset>
 
@@ -192,7 +236,10 @@ export function FenetreAjout({ jour, plats, dejaAuMenu, photos, onClose }: {
               {choisi && (
                 <div className="flex items-center gap-4 rounded-[16px] bg-[color:var(--h-surface)] p-3">
                   <div className="w-[120px] shrink-0 overflow-hidden rounded-[10px]"><PhotoPlat photo={choisi.photo} nom={choisi.nom} /></div>
-                  <p className="min-w-0 text-[14px] leading-5 text-encre/80">{choisi.description || "Pas de description pour ce plat"}</p>
+                  <div className="min-w-0 text-[14px] leading-5">
+                    <p className="text-encre/80">{choisi.description || "Pas de description pour ce plat"}</p>
+                    <EcartesEnImages ecartes={choisi.ecartes} className="chiffres mt-1 text-texte-2" />
+                  </div>
                 </div>
               )}
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
