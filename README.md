@@ -38,6 +38,9 @@ En une phrase : « Plus de file, plus de gaspillage, plus d'allergie surprise, p
 
 Adresse de la démonstration : https://cantine.jedevui.com
 
+Le manuel, avec captures d'écran (ce que fait l'application, les comptes, un parcours d'essai) :
+[`docs/manuel-cantine-vatel.pdf`](docs/manuel-cantine-vatel.pdf).
+
 Comptes de démonstration (personnes et repas inventés pour l'essai, créés par `npm run demo`) :
 
 | Rôle | E-mail | Mot de passe |
