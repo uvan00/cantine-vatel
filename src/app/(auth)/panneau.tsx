@@ -5,13 +5,14 @@ import { aujourdhui, maintenant } from "@/lib/horloge";
 import { clotureLisible, jourProche } from "@/lib/jours";
 import { MARQUE } from "@/lib/marque";
 
-// Le panneau marine de la connexion, à l'ordinateur, d'après le modèle donné pour l'ordinateur : la cloche (image de Codex, sur le marine
-// #03285C de ses bords, que le panneau reprend), la phrase de la cantine, puis la carte à encoche avec le menu du prochain jour servi.
+// Le panneau marine de la connexion, à l'ordinateur, d'après le modèle donné pour l'ordinateur : la cloche dessinée de
+// l'application mobile (la même qu'au téléphone, à la demande du propriétaire du 21/11/2026), la phrase de la cantine,
+// puis la carte à encoche avec le menu du prochain jour servi. Le marine est celui de Vatel, comme au téléphone.
 // Tout vient de la base : le jour, les plats, leurs photos, l'heure de clôture. Rien n'est inventé.
 
-const MARINE = "#03285C";
-/** Le carton de la carte à encoche : un cran plus clair que le panneau, plein (ses morceaux se recouvrent). */
-const CARTON = "#21406F";
+const MARINE = "#072A5D";
+/** Le carton de la carte à encoche : le marine éclairci de 12 % de blanc, plein (ses morceaux se recouvrent). */
+const CARTON = "#254470";
 
 /** « Garba, kedjenou et riz sauce arachide » : trois plats au plus, la suite se lit sur la pile de photos. */
 function enMots(noms: string[]) {
@@ -37,12 +38,12 @@ export async function PanneauCantine({ className = "" }: { className?: string })
   return (
     <aside aria-label={`${MARQUE.cantine} en bref`} className={`relative isolate flex-col overflow-hidden rounded-[40px] ${className}`}
       style={{ background: MARINE, "--sn-on": "255 255 255" } as React.CSSProperties}>
-      <Image src="/connexion/cloche-panneau.webp" alt="Une cloche de service en métal sur son assiette, un filet de lumière dorée dessous"
-        width={1024} height={1024} priority sizes="48vw"
-        className="absolute inset-x-0 top-0 -z-10 w-full [mask-image:linear-gradient(to_bottom,#000_70%,transparent)]" />
-      {/* L'assiette finit à 42 % de la largeur de l'image, qui est carrée : le texte commence juste dessous. */}
-      <div className="flex flex-1 flex-col px-[10%] pt-[46%] pb-[8%]">
-        <div className="pl-[5%]">
+      <div className="flex flex-1 flex-col px-[10%] pt-[8%] pb-[8%]">
+        <Image src="/connexion/dessin-cloche.webp" alt="Une cloche de service dessinée, qui sourit sous deux cœurs"
+          width={1080} height={752} priority sizes="(min-width: 1960px) 360px, 19vw"
+          className="mx-auto mb-[6%] block h-auto w-[48%] max-w-[360px]" />
+        {/* mb-8 : même quand l'écran est bas, 32 au moins entre la phrase et la carte du menu. */}
+        <div className="mb-8 pl-[5%]">
           <p className="text-[18px] leading-6 font-medium text-white/90">{MARQUE.ecole}</p>
           <h2 className="mt-4 text-[36px] leading-[44px] font-semibold text-white">{MARQUE.slogan}</h2>
           <p className="mt-3 max-w-[480px] text-[15px] leading-6 text-white/70">

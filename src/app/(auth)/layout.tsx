@@ -7,8 +7,9 @@ import { PanneauCantine } from "./panneau";
 
 // Connexion et inscription, d'après les deux modèles donnés par le propriétaire le 21/11/2026. Au téléphone (modèle
 // mobile) : le haut marine avec la cloche et la phrase de la cantine, puis la feuille blanche du formulaire. À
-// l'ordinateur (second modèle) : le formulaire à gauche sur le gris clair, le panneau marine à droite. La cloche est une
-// image de Codex (public/connexion/), sur un marine uni que le fond reprend au pixel près : aucune couture.
+// l'ordinateur (second modèle) : le formulaire à gauche sur le gris clair, le panneau marine à droite. La cloche est le
+// dessin de l'application mobile (public/connexion/dessin-cloche.webp, fond transparent), à la demande du propriétaire
+// du même jour : le site, au téléphone comme à l'ordinateur, et l'application montrent la même.
 // Déjà connecté, on file vers son accueil.
 export const dynamic = "force-dynamic";
 
@@ -19,18 +20,14 @@ export default async function LayoutEntree({ children }: { children: React.React
   const m = await moi();
   if (m) redirect(accueilDe(m.role));
   return (
-    <main className="flex min-h-dvh flex-col bg-[#042557] lg:flex-row lg:bg-[#F4F4F5] lg:py-12 lg:pr-12 xl:py-14 xl:pr-16">
-      {/* Téléphone : la cloche en haut, la phrase de la cantine juste sous l'assiette (qui finit à 48 % de la largeur). */}
-      <header className="relative h-[calc(min(48vw,260px)+124px)] shrink-0 overflow-hidden lg:hidden" style={SUR_MARINE}>
-        <Image src="/connexion/cloche.webp" alt="" width={1024} height={1024} priority sizes="(max-width: 540px) 100vw, 540px"
-          className="absolute top-0 left-1/2 w-full max-w-[540px] -translate-x-1/2" />
-        <div className="relative px-5 pt-5">
-          <Logo className="text-[20px]" />
-        </div>
-        <div className="absolute inset-x-0 bottom-11 px-5">
-          <p className="text-[28px] leading-9 font-semibold text-white">{MARQUE.slogan}</p>
-          <p className="mt-1 text-[15px] leading-5 text-white/70">Ton e-mail, ton mot de passe, et à table</p>
-        </div>
+    <main className="flex min-h-dvh flex-col bg-[#072A5D] lg:flex-row lg:bg-[#F4F4F5] lg:py-12 lg:pr-12 xl:py-14 xl:pr-16">
+      {/* Téléphone, comme l'application : le logo, la cloche dessinée (haute de 42 % de la largeur, 190 au plus), la phrase. */}
+      <header className="shrink-0 px-5 pt-5 pb-11 lg:hidden" style={SUR_MARINE}>
+        <Logo className="text-[20px]" />
+        <Image src="/connexion/dessin-cloche.webp" alt="" width={1080} height={752} priority sizes="(max-width: 452px) 61vw, 273px"
+          className="mx-auto my-3 block h-[min(42vw,190px)] w-auto" />
+        <p className="text-[28px] leading-9 font-semibold text-white">{MARQUE.slogan}</p>
+        <p className="mt-1 text-[15px] leading-5 text-white/70">Ton e-mail, ton mot de passe, et à table</p>
       </header>
 
       {/* Le formulaire : la feuille blanche au téléphone, la colonne de gauche à l'ordinateur. */}
