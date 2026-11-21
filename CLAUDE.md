@@ -13,7 +13,10 @@ Harness du propriétaire : `~/.agents/harness/AGENTS.md`, puis la fiche `~/.agen
   par `src/lib/operations.ts`, dans une transaction. Le serveur décide des montants, l'écran affiche. Un essai pour toute
   règle nouvelle.
 - Sécurité : chaque page appelle `exiger(...)`, chaque action serveur et chaque route JSON appelle `autorise(...)`
-  (`src/lib/session.ts`). Le rôle n'est jamais reçu du navigateur. Un parent ne voit que ses enfants (`peutAgirPour` de
+  (`src/lib/session.ts`). Le rôle n'est jamais reçu du navigateur. Deux rôles à la cantine depuis le 21/11/2026 :
+  l'admin (tout) et le responsable de cantine (le comptoir) ; ce que chacun ouvre est dans `src/lib/roles.ts` (pur,
+  testé). Une page ou une action du comptoir fait `exiger(...CANTINE)` ou `autorise(...CANTINE)`, une page de l'admin
+  `exiger("admin")`. Un responsable se crée dans les Réglages (`ajouterResponsable`), jamais par l'inscription. Un parent ne voit que ses enfants (`peutAgirPour` de
   `src/lib/donnees.ts`). Chaque action valide son entrée avec zod.
   Depuis l'audit du 21/11/2026 : la connexion passe par une seule porte, derrière un compteur de tentatives
   (`ouvrirSession` de `src/lib/operations.ts`, `src/lib/tentatives.ts`) ; les routes de Better Auth dont on ne se sert pas

@@ -37,7 +37,7 @@ Ce qui démarque : on recharge le compte en Mobile Money sans quitter la page, e
 4.6). En second choix, un seul QR de paiement, le QR universel PI-SPI de la BCEAO, au
 lieu d'un QR par opérateur (section 4.6 ; coupé pour le moment depuis le 21/11/2026, restent Cartflox et les espèces). L'argent va directement sur le compte de la cantine : Tablée ne le touche jamais.
 
-## 3. Les trois rôles
+## 3. Les quatre rôles
 
 **Le convive (élève ou employé)**
 1. Crée son compte (prénom, nom, e-mail, mot de passe, « élève » ou « employé », classe ou service en option) et se connecte.
@@ -56,13 +56,29 @@ lieu d'un QR par opérateur (section 4.6 ; coupé pour le moment depuis le 21/11
 4. Règle le profil alimentaire de l'enfant et le seuil d'alerte.
 
 **L'administrateur de la cantine** (compte créé par les données de démonstration, jamais par l'inscription publique)
-1. Tableau de bord : les chiffres du jour et de la semaine (section 4.9).
+1. Tableau de bord : les chiffres du jour et de la semaine (section 4.9) ; depuis le 21/11/2026, aussi ce qui attend
+   (recharges, demandes hors délai, repas à vérifier pour une allergie), l'argent du mois comparé aux mêmes jours du mois
+   d'avant (encaissé, gagné, dépensé, bilan), les convives (inscrits, actifs, sous leur seuil, argent en dépôt) et
+   l'équipe du jour (repas servis et espèces encaissées par chacun, la borne, le Mobile Money).
 2. Menus : jour par jour, ajouter un plat au menu (plat existant ou nouveau : nom, description, prix, allergènes,
    portions prévues, photo choisie parmi celles déjà rangées dans `public/plats`), le modifier, le retirer s'il n'a aucune
    réservation, sinon le marquer « épuisé ». Envoyer une nouvelle photo : plus tard.
 3. Commandes : par plat, les repas réservés, servis, à servir, et la liste des convives ; aujourd'hui ou demain ; en direct.
 4. Scanner : la caméra lit le ticket, le repas passe à « servi » ; saisie du code court en secours.
 5. Recharges : les demandes en attente, « Paiement reçu » en deux temps ; recharge en espèces au comptoir.
+6. Réglages, « L'équipe de la cantine » : créer un responsable de cantine (nom, e-mail, mot de passe donné de vive
+   voix), le désactiver quand il part (ses sessions se ferment, ce qu'il a encaissé et servi reste à son nom), le
+   réactiver, lui donner un nouveau mot de passe.
+
+**Le responsable de cantine** (demande du propriétaire du 21/11/2026 ; créé par l'admin, jamais par l'inscription)
+1. Tableau de bord du comptoir : le service du jour, ce qui attend, sa caisse du jour (les espèces qu'il a encaissées,
+   recharge par recharge), la semaine et demain.
+2. Scanner, commandes, pesée des restes, réserver pour un convive, demandes hors délai, repas non retirés, borne,
+   feuille du jour.
+3. Recharges à confirmer et recharge en espèces : chaque encaissement est noté à son nom (`Recharge.confirmeePar`),
+   chaque repas servi aussi (`Reservation.serviPar`).
+4. Ne voit pas : l'argent de la cantine (encaissements, ventes, dépenses, bilan, soldes), les menus et leurs prix, les
+   messages, les besoins, les réglages et l'équipe, le rapport, l'assistant. La liste est dans `src/lib/roles.ts`.
 
 ## 4. Les règles (pures, testées, à un seul endroit)
 
@@ -88,8 +104,11 @@ Une réservation est acceptée seulement si tout est vrai. Sinon, la raison est 
 - Montants en F CFA entiers, affichés par une seule fonction `fcfa()`.
 - Le compte d'un convive est un journal de mouvements : recharge (plus), repas (moins), remboursement (plus).
   Le solde est la somme du journal. On ne stocke pas le solde à part. Le solde ne passe jamais sous zéro.
-- Réserver débite tout de suite (réserver, c'est payer). Annuler avant la clôture rembourse en entier.
-  Un repas réservé et non retiré n'est pas remboursé : c'est ce qui rend les chiffres de la cuisine fiables.
+- Réserver et payer : le prix part du solde tout de suite. Annuler avant la clôture rembourse en entier.
+  Un repas payé et non retiré n'est pas remboursé : c'est ce qui rend les chiffres de la cuisine fiables.
+- Réserver sans payer (demande du propriétaire du 21/11/2026) : l'élève choisit « Au comptoir » ; rien ne bouge sur son
+  solde, et la caisse encaisse au scan, en espèces, par Mobile Money ou sur son solde (4.12). Annulé avant la clôture,
+  il n'y a rien à rendre ; jamais retiré, rien n'a été encaissé, il n'entre pas dans ce que la cantine a gagné.
 - Réservation et mouvement s'écrivent dans la même transaction. Le serveur décide des montants, l'écran les affiche.
 
 ### 4.4 Le ticket
@@ -211,6 +230,7 @@ D'après notre étude des logiciels de cantine les plus répandus.
   relié, ou un employé, le règle pour lui. L'élève qui a un parent le voit sans pouvoir le changer.
 - **La carte de cantine** (`/carte`) : un QR qui ne change pas, sauf quand on refait la carte (perdue ou photographiée) ; au comptoir, à la borne et au
   scanner hors ligne, il sert le repas réservé du jour, comme le ticket. Le parent l'imprime pour l'enfant sans téléphone.
+  Depuis le 21/11/2026, c'est aussi le badge (4.12) : la carte naît avec le compte, et sert même sans réservation.
 - **L'assistant de la cantine** (façon LinkAfr, demande du propriétaire du 21/11/2026) :
   - **Où** : un panneau à droite du tableau de bord, ouvert d'office dès 1280 px (sinon un tiroir), qui s'ouvre depuis le rail ou la barre du haut.
   - **Les questions guidées** se répondent avec les vrais chiffres, sans IA : le service du jour, ce qu'il faut préparer demain, le plat qui marche le mieux, les repas non retirés et les recharges en attente.
@@ -231,6 +251,36 @@ D'après notre étude des logiciels de cantine les plus répandus.
 
   Les règles sont dans `src/lib/comptabilite.ts`, avec leurs essais ; les écritures passent par `operations.ts`.
 
+### 4.12 Le paiement au comptoir, les trois files et le badge (demande du propriétaire du 21/11/2026)
+Règles pures dans `src/lib/reservation.ts` (testées), écritures dans `src/lib/operations.ts` (`reserver`, `servir`, `servirAuBadge`).
+- **Tout passe par le scan**, pour la traçabilité : chaque repas garde sa file, son paiement, qui l'a servi et quand.
+- **Trois files**, fixées quand le repas est créé :
+  - *File express* : réservé et payé sur le solde. Un scan, et c'est servi ; la borne d'entrée suffit.
+  - *File réservation* : réservé sans payer. Le scan répond « À encaisser » avec le montant ; la caisse choisit le
+    moyen (espèces, Mobile Money, ou le solde de l'élève s'il suffit) ; le repas est payé et servi dans la même
+    transaction, au nom de celui qui encaisse.
+  - *File classique* : sans réservation. La caisse scanne le badge, montre les plats du jour (complet, profil
+    alimentaire et plafond déjà vérifiés), l'élève choisit, paie par le même choix de moyens : le repas est créé,
+    payé et servi d'un coup.
+- **Ce qui ne change pas** : un repas par jour, les portions, le profil alimentaire, le plafond de la semaine (qui
+  compte tous les repas, payés ou non), la clôture pour réserver et pour annuler. La borne n'encaisse pas : elle
+  renvoie un ticket à payer vers la file réservation, un badge sans repas vers la file classique. Sans réseau, un
+  ticket à payer ne se sert pas d'après la copie de l'appareil.
+- **L'estimation** : Commandes affiche les trois files et, pour la file classique, les repas à prévoir en plus des
+  réservations : la moyenne des repas pris sans réservation les cinq derniers jours de service (le service en cours ne
+  compte pas) ; rien tant qu'il n'y a pas d'historique.
+- **La démonstration** : `node scripts/files-demo.mts` (enchaîné par `npm run demo`) ajoute des repas inventés dans les
+  files réservation et classique, aujourd'hui et sur les cinq derniers jours de service, sans toucher aucun solde.
+- **L'argent** : un repas payé en espèces ou par Mobile Money entre dans « l'argent entré » (Encaissements), sans
+  passer par le solde de l'élève ; payé en espèces, il entre aussi dans la caisse du jour de la personne qui l'a servi.
+  Le Mobile Money au comptoir est déclaré par la caisse : aucun opérateur ne le confirme. Avant de débiter le solde
+  d'un élève, la caisse confirme (un repas servi ne se défait plus). Tant qu'il n'est pas encaissé, un repas à payer ne
+  compte ni dans « Payé en repas » (rapport de la semaine) ni comme de l'argent gardé (repas non retirés : « jamais
+  payé »).
+- **Le badge** (`/admin/badges`, admin) : recto (marque Vatel, « Élève » ou « Personnel », visage, nom, classe) et
+  verso (le QR de la carte de cantine), 54 mm sur 85,6 mm, à plier ; l'impression se fait par classe ou pour tous,
+  quatre par feuille A4 couchée. « Badge perdu » refait la carte : l'ancien QR ne passe plus.
+
 ## 5. Les données (`prisma/schema.prisma`)
 
 SQLite ne connaît ni les listes ni les énumérations : les états sont des textes, les listes (allergènes) un texte séparé
@@ -242,7 +292,7 @@ par des virgules, lu et écrit par deux fonctions pures testées.
 | LienParent | le parent, l'enfant ; unique par couple |
 | Plat | nom, description, photo, prix par défaut, allergènes, contient du porc, végétarien |
 | MenuJour | le jour, le plat, le prix du jour, portions prévues (ou vide), épuisé ; unique par jour et par plat |
-| Reservation | le convive, le menu du jour, l'état (réservée, servie, annulée), le jeton, le code court, l'heure de passage (ou vide), les heures (créée, servie, annulée) |
+| Reservation | le convive, le menu du jour, l'état (réservée, servie, annulée), le jeton, le code court, l'heure de passage (ou vide), les heures (créée, servie, annulée), qui a servi, la file (express, reservation, classique) et le paiement (solde, a_payer, especes, mobile_money) |
 | Reglages | une seule ligne : l'heure de clôture, les heures de passage (ouvertes ou non, début, fin, pas, capacité), les remises des tarifs (prévues, aucune règle ne les applique encore) |
 | DemandeRepas | la demande hors délai : le convive, le plat du jour, l'état (en attente, acceptée, refusée), la réservation faite en acceptant |
 | Ingredient, LigneRecette | les ingrédients (nom, unité) et la fiche de chaque plat : la quantité d'un ingrédient par portion (bonus 2) |
@@ -273,6 +323,7 @@ par des virgules, lu et écrit par deux fonctions pures testées.
 | `/admin/scanner` | admin | Scanner un ticket, ou taper son code court ; sans réseau, d'après la copie des tickets du jour |
 | `/borne` | la cantine la lance, puis sans session | La borne d'entrée : l'élève scanne lui-même son ticket, hors de la coque de la cantine |
 | `/admin/reglages` | admin | L'heure de clôture et les heures de passage |
+| `/admin/badges` | admin | Les badges de cantine, à imprimer par classe ; « Badge perdu » refait la carte (4.12) |
 | `/admin/besoins` | admin | Les fiches recettes et les quantités à sortir pour un jour (bonus 2), en quatre vues : le jour (chiffres, alerte allergies, liste de sortie par rayon à cocher, plan de production), la réserve (`?vue=reserve`), les achats (`?vue=achats`, demain ou 7 jours), les coûts (`?vue=couts`) |
 | `/admin/plus` | admin | Au téléphone : les rubriques qui ne tiennent pas dans la barre du bas |
 | `/admin/recharges` | admin | Paiements Cartflox « À regarder », confirmer « Paiement reçu », recharge en espèces |

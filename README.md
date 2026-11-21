@@ -5,28 +5,38 @@ En une phrase : « Plus de file, plus de gaspillage, plus d'allergie surprise, p
 
 | Problème de la cantine | Ce que fait Tablée |
 |---|---|
-| Les files d'attente | On réserve à l'avance et on reçoit un ticket avec un QR. Au comptoir, un scan : servi |
+| Les files d'attente | On réserve à l'avance et on reçoit un ticket avec un QR. Au comptoir, un scan : servi. Trois files, pour que personne ne ralentisse les autres : express (réservé et payé), réservation (réservé, à payer au comptoir), classique (sans réservation, avec son badge) |
+| Le téléphone oublié, perdu ou absent | Chaque convive a son badge de cantine, créé avec son compte et imprimé par la cantine : un scan au comptoir, avec ou sans réservation. Tout passe par le scan, donc chaque repas garde sa file, son paiement, qui l'a servi et quand |
 | Le gaspillage | La cuisine voit le nombre exact de repas par plat avant de cuisiner, puis pèse les restes de chaque plat après le service |
 | Les régimes et les allergies | Chaque convive a son profil alimentaire. Un plat qui ne lui convient pas ne se réserve pas, et la cantine voit, en le mettant au menu, combien de convives ne pourront pas le prendre. Les quatorze allergènes de la réglementation européenne, chacun avec son dessin à côté de son nom ; au service, le scanner, les commandes et la feuille de cuisine disent à quoi un convive est allergique, et signalent un repas déjà réservé qui ne convient plus à son profil |
 | Les menus et les prix peu clairs | Le menu de la semaine, avec la photo, le prix et les allergènes de chaque plat |
 | La gestion à la main | Commandes du jour, recharges et chiffres calculés tout seuls |
 
-## Les trois rôles
+## Les quatre rôles
 
-- **L'élève ou l'employé** : voit le menu de la semaine, réserve un repas (réserver, c'est payer), annule jusqu'à la clôture
-  du jour même (9 h par défaut, la cantine la règle) et est remboursé tout de suite, montre son ticket au comptoir, suit son solde et son historique, règle son
-  profil alimentaire, note ses repas.
+- **L'élève ou l'employé** : voit le menu de la semaine, réserve un repas en le payant tout de suite avec son solde, ou sans payer
+  pour le régler au comptoir, annule jusqu'à la clôture du jour même (9 h par défaut, la cantine la règle) et retrouve
+  tout de suite ce qu'il avait payé, montre son ticket ou son badge au comptoir, suit son solde et son historique, règle
+  son profil alimentaire, note ses repas.
 - **Le parent** : relie son enfant avec le code que celui-ci crée pour lui dans son compte (valable 15 minutes, pour un
   seul parent ; l'enfant peut retirer un parent), voit son solde et ses repas de la semaine (servi, non retiré),
   est prévenu quand le solde est bas, recharge le compte, règle le profil alimentaire.
-- **L'administrateur de la cantine** : planifie les menus (et voit qui ne pourra pas prendre chaque plat), suit les
+- **L'admin de la cantine** : planifie les menus (et voit qui ne pourra pas prendre chaque plat), suit les
   commandes d'aujourd'hui et de demain en direct, sert en scannant les tickets, réserve pour un convive sans téléphone
-  (jusqu'à la clôture, comme tout le monde), imprime la feuille du jour en secours, pèse les restes après le service,
-  voit qui n'est pas venu chercher son repas, confirme les recharges, lit son tableau de bord.
+  (jusqu'à la clôture, comme tout le monde), imprime la feuille du jour en secours et les badges de cantine (un badge perdu se refait), pèse les restes après le service,
+  voit qui n'est pas venu chercher son repas, confirme les recharges, tient la comptabilité, crée et désactive les
+  responsables de cantine (Réglages, « L'équipe de la cantine »), lit son tableau de bord : le service du jour, ce qui
+  attend, l'argent du mois comparé aux mêmes jours du mois d'avant, les convives, l'équipe du jour.
+- **Le responsable de cantine** (créé par l'admin, depuis le 21/11/2026) : tient le comptoir. Il scanne les tickets
+  et les badges, encaisse au scan un repas réservé sans payer (espèces, Mobile Money ou solde de l'élève), sert au badge
+  celui qui n'a pas réservé (il choisit son plat et paie sur place), suit les commandes et leurs trois files avec
+  l'estimation des repas sans réservation, encaisse les espèces et confirme les recharges, voit sa caisse du jour, répond aux demandes hors
+  délai, lance la borne. Il ne voit ni l'argent de la cantine, ni les menus et leurs prix, ni les messages, ni les
+  achats, ni les réglages. Ce qu'il sert et ce qu'il encaisse est noté à son nom.
 
 ## Essayer
 
-Adresse de la démonstration : à compléter après la mise en ligne.
+Adresse de la démonstration : https://cantine.jedevui.com
 
 Comptes de démonstration (personnes et repas inventés pour l'essai, créés par `npm run demo`) :
 
@@ -34,13 +44,14 @@ Comptes de démonstration (personnes et repas inventés pour l'essai, créés pa
 |---|---|---|
 | Élève (Awa, allergique à l'arachide) | `awa@cantine.test` | `cantine-demo-2026` |
 | Parent (Mariam, sa maman) | `mariam@cantine.test` | `cantine-demo-2026` |
-| Cantine (Aminata, administratrice) | `cantine@cantine.test` | `cantine-demo-2026` |
+| Responsable de cantine (Fatou, au comptoir) | `fatou@cantine.test` | `cantine-demo-2026` |
+| Admin de la cantine (Aminata) | `cantine@cantine.test` | `cantine-demo-2026` |
 
 Quand `MODE_DEMO="1"`, la page de connexion propose aussi « Essayer sans compte » : une entrée directe dans les comptes d'Awa
-et de Mariam. Celui de la cantine ne s'ouvre en un clic que sur un ordinateur de développement, jamais sur un serveur en
-ligne : la cantine s'y connecte avec son e-mail et son mot de passe.
-On peut bien sûr créer son propre compte d'élève, d'employé ou de parent. Un compte d'administrateur ne se crée jamais
-par l'inscription publique.
+et de Mariam. Ceux de la cantine (Fatou et Aminata) ne s'ouvrent en un clic que sur un ordinateur de développement,
+jamais sur un serveur en ligne : la cantine s'y connecte avec son e-mail et son mot de passe.
+On peut bien sûr créer son propre compte d'élève, d'employé ou de parent. Un compte de la cantine (admin ou responsable)
+ne se crée jamais par l'inscription publique : l'admin crée ses responsables dans les Réglages.
 
 ## Lancer en local
 
@@ -49,9 +60,13 @@ Il faut Node 24.
 ```bash
 npm install
 cp .env.example .env        # puis mettre une valeur au hasard dans BETTER_AUTH_SECRET (openssl rand -hex 32)
-npm run demo                # crée la base SQLite et les données de démonstration, livraisons de la réserve comprises
+npm run demo                # crée la base SQLite et les données de démonstration, livraisons de la réserve et trois files du comptoir comprises
 npm run dev                 # http://localhost:3700
 ```
+
+Sur un serveur en ligne, ne relance pas `npm run demo` : il remet la base à neuf (comptes, repas, recharges) et rend au
+compte de la cantine le mot de passe de démonstration. Pour y remplir les trois files du comptoir, lance seulement
+`node scripts/files-demo.mts` : il ajoute des repas de démonstration, n'efface rien et ne double rien.
 
 Vérifier : `npm test` (règles pures), `npx tsc --noEmit`, `npm run lint`.
 
