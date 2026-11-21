@@ -3,6 +3,7 @@ import { dateLongue } from "@/lib/format";
 import { ajouterJours, jourIso, lundiDe } from "@/lib/jours";
 import { pourQui, type Cible } from "@/lib/messages";
 import { heureH } from "@/lib/reservation";
+import { estCantine } from "@/lib/roles";
 import type { Role } from "@/lib/session";
 
 // Les messages de la cantine (bonus du lot 2) : ce que chacun reçoit, et ce que la cantine a envoyé, avec ses lectures.
@@ -19,7 +20,7 @@ export type MessageRecu = { id: string; titre: string; texte: string; epingle: b
 
 /** Les messages pour cette personne, les épinglés d'abord, puis du plus récent au plus ancien. */
 export async function mesMessages(moi: { id: string; role: Role }): Promise<MessageRecu[]> {
-  if (moi.role === "admin") return [];
+  if (estCantine(moi.role)) return [];
   const messages = await prisma.message.findMany({
     orderBy: [{ epingle: "desc" }, { creeLe: "desc" }],
     take: 100,

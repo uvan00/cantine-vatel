@@ -3,7 +3,8 @@ import Link from "next/link";
 import { AUTRES_RUBRIQUES } from "@/components/rubriques-admin";
 import { EnTetePage } from "@/components/fenetre";
 import { ChevronRight, FileText, Printer, QrCode, AlertTriangle } from "@/components/icons";
-import { exiger } from "@/lib/session";
+import { peutOuvrir } from "@/lib/roles";
+import { CANTINE, exiger } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Plus" };
 
@@ -18,8 +19,9 @@ const ECRANS = [
 ];
 
 export default async function PagePlus() {
-  await exiger("admin");
-  const lignes = [...AUTRES_RUBRIQUES.map((r) => ({ ...r, phrase: "" })), ...ECRANS];
+  const m = await exiger(...CANTINE);
+  // Chacun ne voit que ce que son rôle ouvre : le responsable n'a ni les messages, ni les besoins, ni les réglages, ni le rapport.
+  const lignes = [...AUTRES_RUBRIQUES.map((r) => ({ ...r, phrase: "" })), ...ECRANS].filter((l) => peutOuvrir(m.role, l.href));
   return (
     <div className="space-y-6">
       <EnTetePage titre="Plus" />

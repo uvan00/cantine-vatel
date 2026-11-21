@@ -8,7 +8,7 @@ import { verifierRecharge } from "@/lib/cartflox-serveur";
 import { confirmerRecharge, crediterParCartflox, rechargerEnEspeces } from "@/lib/operations";
 import { prisma } from "@/lib/db";
 import { RECHARGE_MAX, RECHARGE_MIN } from "@/lib/recharge";
-import { autorise } from "@/lib/session";
+import { CANTINE, autorise } from "@/lib/session";
 import { chercher } from "./recherche";
 
 // Les gestes de la cantine sur les recharges : confirmer qu'un paiement est arrivé, créditer des espèces reçues
@@ -22,7 +22,7 @@ const Id = z.string().min(1).max(64);
 
 /** « Paiement reçu » : la cantine a vu l'argent arriver sur son compte, le solde du convive monte. */
 export async function paiementRecu(id: string): Promise<{ ok: true } | Echec> {
-  const admin = await autorise("admin");
+  const admin = await autorise(...CANTINE);
   if (!admin) return REFUS;
   const v = Id.safeParse(id);
   if (!v.success) return { ok: false, erreur: "Recharge introuvable" };
@@ -38,7 +38,7 @@ const Especes = z.object({
 
 /** La cantine a encaissé des espèces : le compte est crédité tout de suite. Rend la référence et le nouveau solde. */
 export async function encaisserEspeces(entree: { beneficiaireId: string; montant: number }): Promise<{ ok: true; reference: string; solde: number } | Echec> {
-  const admin = await autorise("admin");
+  const admin = await autorise(...CANTINE);
   if (!admin) return REFUS;
   const v = Especes.safeParse(entree);
   if (!v.success) return { ok: false, erreur: v.error.issues[0].message };
@@ -55,7 +55,7 @@ const TROUVES_AU_PLUS = 8;
  * lettres, huit comptes au plus. Une action (et non une adresse avec le nom dedans) : un nom ne traîne dans aucun journal.
  */
 export async function chercherConvives(recherche: string): Promise<VueCompteTrouve[]> {
-  if (!(await autorise("admin"))) return [];
+  if (!(await autorise(...CANTINE))) return [];
   const v = Recherche.safeParse(recherche);
   if (!v.success) return [];
   const trouves = chercher(await comptesDesConvives(), v.data, TROUVES_AU_PLUS);
@@ -65,7 +65,7 @@ export async function chercherConvives(recherche: string): Promise<VueCompteTrou
 
 /** « Vérifier chez Cartflox » : relit tout de suite les paiements en ligne d'une demande, et la crédite s'ils sont passés. */
 export async function verifierChezCartflox(id: string): Promise<{ ok: true; etat: string } | Echec> {
-  if (!(await autorise("admin"))) return REFUS;
+  if (!(await autorise(...CANTINE))) return REFUS;
   const v = Id.safeParse(id);
   if (!v.success) return { ok: false, erreur: "Recharge introuvable" };
   const etat = await verifierRecharge(v.data, { force: true });
@@ -78,7 +78,7 @@ export async function verifierChezCartflox(id: string): Promise<{ ok: true; etat
  * demande, lu dans la base.
  */
 export async function crediterPaiement(sessionId: string): Promise<{ ok: true } | Echec> {
-  const admin = await autorise("admin");
+  const admin = await autorise(...CANTINE);
   if (!admin) return REFUS;
   const v = z.string().regex(/^[a-z0-9]{12,40}$/).safeParse(sessionId);
   if (!v.success) return { ok: false, erreur: "Paiement introuvable" };

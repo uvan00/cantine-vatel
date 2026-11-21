@@ -1,7 +1,8 @@
 // Essai des corrections de sécurité et de fonctionnement du 21/11/2026 (audit), contre un serveur qui tourne, par
 // défaut la copie d'essai sur http://localhost:3711. À lancer sur une copie de la base, jamais sur la vraie : il relie
-// et délie un parent, change un profil alimentaire, sert un ticket, demande et confirme une recharge, et ferme un
-// moment la connexion d'un compte de démonstration (le compteur de tentatives).
+// et délie un parent, change un profil alimentaire, sert un ticket, demande et confirme une recharge, essaie les
+// droits de la responsable de cantine, et ferme un moment la connexion d'un compte de démonstration (le compteur de
+// tentatives).
 // Les mots de passe de démonstration se lisent dans le README au lancement : ils ne sont pas ici.
 // Lancer : node scripts/essai-securite.mjs  (ADRESSE=http://localhost:3711 par défaut)
 import { readFileSync } from "node:fs";
@@ -112,7 +113,27 @@ if (autre.json?.id) {
   verdict(a1.status === 200 && a2.status !== 200, "une recharge ne s'annule qu'une fois", `${a1.status}, puis ${a2.status} ${a2.json?.erreur ?? ""}`);
 }
 
-// 6. La limite des tentatives de connexion (à la fin : elle ferme un moment le compte d'Ismaël sur ce serveur)
+// 6. Le responsable de cantine (21/11/2026) : le comptoir, sans l'argent de la cantine ni ses réglages
+const fatou = (await connexion("fatou@cantine.test")).json;
+verdict(fatou?.moi?.role === "responsable", "la responsable de cantine entre avec son rôle", fatou?.moi?.role);
+if (fatou?.jeton) {
+  const cmd = await appel("/comptoir/commandes", { jeton: fatou.jeton });
+  verdict(cmd.status === 200, "elle lit les commandes du comptoir", String(cmd.status));
+  const rec = await appel("/comptoir/recharges", { jeton: fatou.jeton });
+  verdict(rec.status === 200 && typeof rec.json?.caisse?.total === "number", "elle lit les recharges et sa caisse du jour", rec.json?.caisse ? `${rec.json.caisse.total} F CFA, ${rec.json.caisse.lignes.length} ligne(s)` : String(rec.status));
+  const scan = await appel("/comptoir/servir", { jeton: fatou.jeton, corps: { cle: "ZZZZZZ" } });
+  verdict(scan.status === 200 && typeof scan.json?.genre === "string", "elle peut scanner au comptoir", scan.json?.phrase);
+  for (const chemin of ["/compta?vue=bilan", "/rapport", "/compta"]) {
+    const r = await appel(chemin, { jeton: fatou.jeton, racine: "/api/admin" });
+    verdict(r.status === 401, `elle ne lit pas ${chemin.split("?")[0]} : 401`, String(r.status));
+  }
+  const parent = await appel("/parent", { jeton: fatou.jeton });
+  verdict(parent.status === 403 || parent.status === 401, "elle n'entre pas dans l'espace d'un parent", String(parent.status));
+  const caisseAdmin = (await appel("/comptoir/recharges", { jeton: cantine.jeton })).json?.caisse;
+  verdict(typeof caisseAdmin?.total === "number", "l'admin a aussi sa caisse du jour", caisseAdmin ? `${caisseAdmin.total} F CFA` : "absente");
+}
+
+// 7. La limite des tentatives de connexion (à la fin : elle ferme un moment le compte d'Ismaël sur ce serveur)
 let codes = [];
 for (let i = 0; i < 9; i++) codes.push((await connexion("ismael@cantine.test", `mauvais-mot-de-passe-${i}`)).status);
 verdict(codes.slice(0, 8).every((c) => c === 401) && codes[8] === 429, "huit mots de passe faux, puis la porte se ferme", codes.join(" "));

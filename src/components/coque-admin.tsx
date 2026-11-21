@@ -10,9 +10,11 @@ import { LogOut, MessageCircle, MoreVertical } from "@/components/icons";
 import { AUTRES_RUBRIQUES, RUBRIQUES } from "@/components/rubriques-admin";
 import { SIconBtn } from "@/components/sneat";
 import { MARQUE } from "@/lib/marque";
+import { peutOuvrir, type Role } from "@/lib/roles";
 
-// La coque de l'administrateur, d'après le tableau de bord de Tablée (rail d'icônes, page dans un panneau à coins de
-// 24), en clair. Sous 1024 px : barre du haut et onglets en bas (63 px).
+// La coque de la cantine, d'après le tableau de bord de Tablée (rail d'icônes, page dans un panneau à coins de 24), en
+// clair. Sous 1024 px : barre du haut et onglets en bas (63 px). Elle ne montre que les rubriques du rôle
+// (src/lib/roles.ts) : le responsable de cantine n'y voit ni l'argent, ni les menus, ni les réglages, ni l'assistant.
 // L'assistant (façon LinkAfr, demande du propriétaire du 21/11/2026) : dès 1280 px, posé en colonne à droite de la page,
 // ouvert d'office sauf si la cantine l'a fermé (souvenu dans ce navigateur) ; en dessous, un tiroir qui s'ouvre depuis
 // le rail ou la barre du haut, et se referme quand on change de page.
@@ -29,8 +31,11 @@ function Deconnexion() {
   );
 }
 
-export function CoqueAdmin({ children }: { children: React.ReactNode }) {
+export function CoqueAdmin({ role, children }: { role: Role; children: React.ReactNode }) {
   const chemin = usePathname();
+  const rubriques = RUBRIQUES.filter((r) => peutOuvrir(role, r.href));
+  const autres = AUTRES_RUBRIQUES.filter((r) => peutOuvrir(role, r.href));
+  const avecAssistant = peutOuvrir(role, "/admin/assistant");
   // null tant que le navigateur n'a pas dit sa largeur : rien ne change entre le serveur et le premier rendu.
   const [assistant, setAssistant] = useState<boolean | null>(null);
   const [grand, setGrand] = useState(false);
@@ -71,7 +76,7 @@ export function CoqueAdmin({ children }: { children: React.ReactNode }) {
           <MarqueTable className="size-9" />
         </Link>
         <ul className="flex flex-col gap-1">
-          {[...RUBRIQUES, ...AUTRES_RUBRIQUES].map(({ href, libelle, Icon }) => {
+          {[...rubriques, ...autres].map(({ href, libelle, Icon }) => {
             const actif = estActive(chemin, href);
             return (
               <li key={href}>
@@ -85,11 +90,13 @@ export function CoqueAdmin({ children }: { children: React.ReactNode }) {
           })}
         </ul>
         <div className="mt-auto flex flex-col items-center gap-2">
-          <button type="button" onClick={() => basculerAssistant()} aria-pressed={!!assistant}
-            className={`flex w-[76px] flex-col items-center gap-1 rounded-[16px] py-2.5 text-[12px] leading-4 font-medium transition-colors ${assistant ? "bg-surface text-encre/95 shadow-[inset_0_0_0_1px_var(--h-filet)]" : "text-encre/65 hover:bg-[color:var(--h-survol)] hover:text-encre/90"}`}>
-            <MessageCircle className="size-6" strokeWidth={1.8} />
-            Assistant
-          </button>
+          {avecAssistant && (
+            <button type="button" onClick={() => basculerAssistant()} aria-pressed={!!assistant}
+              className={`flex w-[76px] flex-col items-center gap-1 rounded-[16px] py-2.5 text-[12px] leading-4 font-medium transition-colors ${assistant ? "bg-surface text-encre/95 shadow-[inset_0_0_0_1px_var(--h-filet)]" : "text-encre/65 hover:bg-[color:var(--h-survol)] hover:text-encre/90"}`}>
+              <MessageCircle className="size-6" strokeWidth={1.8} />
+              Assistant
+            </button>
+          )}
           <Deconnexion />
         </div>
       </nav>
@@ -98,7 +105,7 @@ export function CoqueAdmin({ children }: { children: React.ReactNode }) {
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[color:var(--h-filet)] bg-[rgb(var(--sn-page))] px-4 lg:hidden print:hidden">
         <Link href="/admin" aria-label={`${MARQUE.cantine} : tableau de bord`}><Logo className="text-[20px]" /></Link>
         <span className="min-w-0 flex-1 truncate text-[13px] text-texte-2">{MARQUE.ecole}</span>
-        <SIconBtn label="Ouvrir l'assistant" onClick={() => basculerAssistant(true)}><MessageCircle className="size-5" strokeWidth={1.8} /></SIconBtn>
+        {avecAssistant && <SIconBtn label="Ouvrir l'assistant" onClick={() => basculerAssistant(true)}><MessageCircle className="size-5" strokeWidth={1.8} /></SIconBtn>}
         <Deconnexion />
       </header>
 
@@ -110,12 +117,12 @@ export function CoqueAdmin({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* L'assistant : en colonne dès 1280 px (coins de 24 comme la page), en tiroir en dessous. */}
-      {assistant && grand && (
+      {avecAssistant && assistant && grand && (
         <aside className={`flex shrink-0 flex-col overflow-hidden rounded-[24px] border border-[color:var(--h-filet)] bg-[rgb(var(--sn-page))] print:hidden ${large ? "w-[560px]" : "w-[400px]"}`}>
           <AssistantCantine onClose={() => basculerAssistant(false)} large={large} onToggleLarge={() => setLarge((l) => !l)} />
         </aside>
       )}
-      {assistant && !grand && (
+      {avecAssistant && assistant && !grand && (
         <>
           <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] print:hidden" onClick={() => basculerAssistant(false)} aria-hidden="true" />
           <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(420px,100vw)] flex-col bg-[rgb(var(--sn-page))] shadow-[0_0_0_1px_var(--h-filet)] print:hidden">
@@ -125,11 +132,12 @@ export function CoqueAdmin({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Onglets en bas (téléphone) */}
-      {/* Six colonnes presque égales : chacune prend au moins la largeur de son mot, pour que « Commandes » tienne entier
-          dès 360 px, et les autres se partagent le reste. */}
-      <nav aria-label="Rubriques" className="fixed inset-x-0 bottom-0 z-30 grid h-[63px] grid-cols-[repeat(6,minmax(max-content,1fr))] border-t border-[color:var(--h-filet)] bg-[rgb(var(--sn-page))] lg:hidden print:hidden">
-        {[...RUBRIQUES, { href: "/admin/plus", libelle: "Plus", Icon: MoreVertical }].map(({ href, libelle, Icon }) => {
-          const actif = href === "/admin/plus" ? chemin.startsWith("/admin/plus") || AUTRES_RUBRIQUES.some((a) => chemin.startsWith(a.href)) : estActive(chemin, href);
+      {/* Des colonnes presque égales, une par rubrique du rôle et « Plus » : chacune prend au moins la largeur de son mot,
+          pour que « Commandes » tienne entier dès 360 px, et les autres se partagent le reste. */}
+      <nav aria-label="Rubriques" style={{ gridTemplateColumns: `repeat(${rubriques.length + 1}, minmax(max-content, 1fr))` }}
+        className="fixed inset-x-0 bottom-0 z-30 grid h-[63px] border-t border-[color:var(--h-filet)] bg-[rgb(var(--sn-page))] lg:hidden print:hidden">
+        {[...rubriques, { href: "/admin/plus", libelle: "Plus", Icon: MoreVertical }].map(({ href, libelle, Icon }) => {
+          const actif = href === "/admin/plus" ? chemin.startsWith("/admin/plus") || autres.some((a) => chemin.startsWith(a.href)) : estActive(chemin, href);
           return (
             <Link key={href} href={href} aria-current={actif ? "page" : undefined}
               className={`flex min-w-0 flex-col items-center justify-center gap-1 text-[11px] leading-4 font-medium ${actif ? "text-encre/95" : "text-encre/65"}`}>

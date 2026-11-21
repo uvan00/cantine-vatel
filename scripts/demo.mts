@@ -68,7 +68,7 @@ const CLASSES = ["Bachelor 1", "Bachelor 2", "Bachelor 3", "MBA 1", "MBA 2"];
 const SERVICES = ["Accueil", "Administration", "Cuisine pédagogique", "Entretien"];
 const sansAccent = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z]/g, "").toLowerCase();
 
-type Personne = { id: string; nom: string; email: string; role: "convive" | "parent" | "admin"; genre?: "eleve" | "employe"; classe?: string; allergenes?: string; regimes?: string; seuil?: number; image?: string };
+type Personne = { id: string; nom: string; email: string; role: "convive" | "parent" | "responsable" | "admin"; genre?: "eleve" | "employe"; classe?: string; allergenes?: string; regimes?: string; seuil?: number; image?: string };
 
 /* Les avatars dessinés (public/avatars) : chaque personne de la démonstration a le sien, d'après son prénom (la liste
    des prénoms alterne fille et garçon) ; une sur quatre garde ses initiales, comme quelqu'un qui n'a pas encore choisi.
@@ -109,13 +109,15 @@ async function main() {
   /* Les comptes : même mot de passe de démonstration pour tous, haché une fois comme le fait Better Auth. */
   const motDePasse = await hashPassword(MOT_DE_PASSE_DEMO);
   const admin: Personne = { id: nouvelId("u_"), nom: COMPTES_DEMO.admin.nom, email: COMPTES_DEMO.admin.email, role: "admin", image: avatar("15") };
+  // La responsable de cantine : elle tient le comptoir (scanner, espèces), sans l'argent de la cantine ni les réglages.
+  const fatou: Personne = { id: nouvelId("u_"), nom: COMPTES_DEMO.responsable.nom, email: COMPTES_DEMO.responsable.email, role: "responsable", image: avatar("17") };
   const awa: Personne = { id: nouvelId("u_"), nom: COMPTES_DEMO.convive.nom, email: COMPTES_DEMO.convive.email, role: "convive", genre: "eleve", classe: "Bachelor 2", allergenes: "arachide", image: avatar("01") };
   const ismael: Personne = { id: nouvelId("u_"), nom: "Ismaël Koné", email: "ismael@cantine.test", role: "convive", genre: "eleve", classe: "Bachelor 1", image: avatar("02") };
   const kouassi: Personne = { id: nouvelId("u_"), nom: "Kouassi Yao", email: "kouassi@cantine.test", role: "convive", genre: "employe", classe: "Accueil", regimes: "sans-porc", image: avatar("16") };
   const mariam: Personne = { id: nouvelId("u_"), nom: COMPTES_DEMO.parent.nom, email: COMPTES_DEMO.parent.email, role: "parent", image: avatar("13") };
 
   const autres: Personne[] = [];
-  const pris = new Set([admin, awa, ismael, kouassi, mariam].map((p) => p.email));
+  const pris = new Set([admin, fatou, awa, ismael, kouassi, mariam].map((p) => p.email));
   while (autres.length < 34) {
     const prenom = parmi(PRENOMS), nom = parmi(NOMS);
     const email = `${sansAccent(prenom)}.${sansAccent(nom)}@cantine.test`;
@@ -127,7 +129,7 @@ async function main() {
 
   autres.forEach((p, rang) => { p.image = avatarDe(p, rang); });
 
-  const tous = [admin, awa, ismael, kouassi, mariam, ...autres];
+  const tous = [admin, fatou, awa, ismael, kouassi, mariam, ...autres];
   const creation = a(jour(-20), 8);
   for (const p of tous) {
     await prisma.user.create({ data: { id: p.id, name: p.nom, email: p.email, emailVerified: true, role: p.role, image: p.image ?? null, createdAt: creation, updatedAt: creation } });
@@ -160,8 +162,8 @@ async function main() {
   /* Réserver : la réservation et son mouvement, comme le fait l'application. */
   const depenses = new Map<string, number>();
   let servis = 0, nonRetires = 0, notes = 0;
-  async function reserver(p: Personne, n: number, m: Menu, etat: "reservee" | "servie", quand: Date, serviLe: Date | null = null, note: number | null = null) {
-    const r = await prisma.reservation.create({ data: { conviveId: p.id, menuJourId: m.id, jour: m.jour, prix: m.prix, etat, jeton: nouveauJeton(), code: nouveauCode(), creeLe: quand, serviLe } });
+  async function reserver(p: Personne, n: number, m: Menu, etat: "reservee" | "servie", quand: Date, serviLe: Date | null = null, note: number | null = null, serviPar: string | null = null) {
+    const r = await prisma.reservation.create({ data: { conviveId: p.id, menuJourId: m.id, jour: m.jour, prix: m.prix, etat, jeton: nouveauJeton(), code: nouveauCode(), creeLe: quand, serviLe, serviPar } });
     const mv = mouvementRepas(m.prix);
     await prisma.mouvement.create({ data: { conviveId: p.id, genre: mv.genre, montant: mv.montant, libelle: `Repas du ${jourLong(m.jour)} : ${m.nom}`, reservationId: r.id, creeLe: quand } });
     depenses.set(p.id, (depenses.get(p.id) ?? 0) + m.prix);
@@ -171,15 +173,18 @@ async function main() {
     if (note) { await prisma.note.create({ data: { reservationId: r.id, platId: plats.get(m.cle)!.id, conviveId: p.id, note, creeLe: serviLe ?? quand } }); notes++; }
     return r;
   }
-  // Une recharge confirmée par la cantine : en espèces au comptoir tant que le QR universel est coupé (moyenManuel).
-  async function recharger(p: Personne, montant: number, quand: Date, moyen: MoyenRecharge = moyenManuel(), demandeur: Personne = p) {
+  // Une recharge confirmée par la cantine (l'admin, ou `par`) : en espèces au comptoir tant que le QR universel est coupé.
+  async function recharger(p: Personne, montant: number, quand: Date, moyen: MoyenRecharge = moyenManuel(), demandeur: Personne = p, par: Personne = admin) {
     const reference = nouvelleReference();
-    const r = await prisma.recharge.create({ data: { beneficiaireId: p.id, demandeurId: demandeur.id, montant, reference, moyen, etat: "confirmee", confirmeePar: admin.id, creeLe: quand, confirmeeLe: quand } });
+    const r = await prisma.recharge.create({ data: { beneficiaireId: p.id, demandeurId: demandeur.id, montant, reference, moyen, etat: "confirmee", confirmeePar: par.id, creeLe: quand, confirmeeLe: quand } });
     const mv = mouvementRecharge(montant);
     await prisma.mouvement.create({ data: { conviveId: p.id, genre: mv.genre, montant: mv.montant, libelle: moyen === "especes" ? `Recharge en espèces ${reference}` : `Recharge ${reference}`, rechargeId: r.id, creeLe: quand } });
   }
 
   const heureDuJour = new Date(MAINTENANT).getUTCHours();
+  // Qui sert les repas d'aujourd'hui, à tour de rôle (sans tirage au hasard : le reste de la démonstration ne bouge pas).
+  const QUI_SERT = [fatou.id, fatou.id, admin.id, "borne"];
+  let tour = 0;
   const convient = (p: Personne, m: Menu) => !(p.regimes === "vegetarien" && !m.vegetarien) && (m.portions === null || m.reservees < m.portions);
 
   // Les autres convives : une semaine de repas, aujourd'hui, demain, et un plat complet après-demain.
@@ -196,7 +201,7 @@ async function main() {
         const serviLe = retire ? a(jour(n), 12, Math.floor(hasard() * 80)) : null;
         await reserver(p, n, m, retire ? "servie" : "reservee", quand, serviLe, retire && hasard() < 0.6 ? parmi([3, 4, 4, 4, 5, 5, 5]) : null);
       } else if (n === 0 && heureDuJour >= 12 && hasard() < 0.4) {
-        await reserver(p, n, m, "servie", quand, new Date(MAINTENANT - Math.floor(hasard() * 50 + 5) * 60_000));
+        await reserver(p, n, m, "servie", quand, new Date(MAINTENANT - Math.floor(hasard() * 50 + 5) * 60_000), null, QUI_SERT[tour++ % QUI_SERT.length]);
       } else {
         await reserver(p, n, m, "reservee", quand);
       }
@@ -219,6 +224,11 @@ async function main() {
     await recharger(p, premiere, a(jour(-8), 9 + Math.floor(hasard() * 6)), hasard() < 0.3 ? "especes" : moyenManuel());
     if (total - premiere >= 500) await recharger(p, Math.ceil((total - premiere) / 500) * 500, a(jour(-3), 10 + Math.floor(hasard() * 5)), moyenManuel());
   }
+
+  // Ce matin au comptoir : Fatou a encaissé trois recharges en espèces, l'admin une. La caisse du jour de chacune n'est
+  // pas vide, et l'accueil de l'admin montre l'équipe.
+  const especesDuJour: [Personne, number, number, Personne][] = [[autres[0], 2000, 140, fatou], [autres[1], 1500, 95, fatou], [autres[2], 3000, 50, fatou], [autres[3], 5000, 30, admin]];
+  for (const [p, montant, minutes, par] of especesDuJour) await recharger(p, montant, new Date(MAINTENANT - minutes * 60_000), "especes", p, par);
 
   // Awa : deux repas servis et notés, un repas non retiré, un ticket pour aujourd'hui. Sa maman a rechargé de quoi lui
   // laisser 2 000 F CFA tout rond : assez pour réserver demain, puis passer sous son seuil d'alerte.
@@ -297,7 +307,7 @@ async function main() {
   console.log(`Cantine de démonstration prête : ${tous.length} comptes, ${PLATS.length} plats, ${JOURS_SERVIS.length} jours servis.`);
   console.log(`Repas servis : ${servis}, non retirés : ${nonRetires}, notes : ${notes}, plats pesés : ${pesees}. Solde d'Awa : ${soldeAwa} F CFA. Comptes sous zéro : ${negatifs}.`);
   console.log(`Messages : ${MESSAGES.length}, fiches recettes : ${Object.keys(FICHES).length} plats, ${ingredients.size} ingrédients, ${lignesDeFiche} lignes.`);
-  console.log(`Comptes de démonstration : ${COMPTES_DEMO.convive.email} (élève), ${COMPTES_DEMO.parent.email} (parent), ${COMPTES_DEMO.admin.email} (cantine). Mot de passe : voir le README.`);
+  console.log(`Comptes de démonstration : ${COMPTES_DEMO.convive.email} (élève), ${COMPTES_DEMO.parent.email} (parent), ${COMPTES_DEMO.responsable.email} (responsable de cantine), ${COMPTES_DEMO.admin.email} (admin de la cantine). Mot de passe : voir le README.`);
   if (negatifs > 0 || soldeAwa !== 2000) process.exitCode = 1;
 }
 

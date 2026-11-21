@@ -12,6 +12,7 @@ test("seize avatars, tous différents, rangés dans public/avatars", () => {
 
 test("seule l'adresse d'un avatar dessiné passe : pas d'autre fichier, pas d'adresse extérieure", () => {
   assert.equal(avatarPermis("/avatars/07.webp"), true);
+  // Le 17 est le visage de la responsable de démonstration : il ne se choisit pas.
   assert.equal(avatarPermis("/avatars/17.webp"), false);
   assert.equal(avatarPermis("/avatars/../plats/attieke.jpg"), false);
   assert.equal(avatarPermis("https://exemple.com/avatars/01.webp"), false);

@@ -1,6 +1,8 @@
 // Les messages de la cantine aux familles (messages épinglés, accusés de lecture, et
 // alertes ciblées : tout le monde, ou ceux qui ont commandé récemment). Règles pures, testées par `npm test`.
 
+import { estCantine, type Role } from "./roles.ts";
+
 export const CIBLES = ["tous", "convives", "parents", "semaine"] as const;
 export type Cible = (typeof CIBLES)[number];
 
@@ -29,8 +31,9 @@ export function refusMessage(m: { titre: string; texte: string; cible: string })
  * Ce message est-il pour cette personne ? Un convive, d'après son rôle et ses réservations de la semaine ; un parent,
  * d'après son rôle et les réservations de la semaine de ses enfants.
  */
-export function pourQui(cible: string, p: { role: "convive" | "parent" | "admin"; reserveCetteSemaine: boolean }): boolean {
-  if (p.role === "admin") return false;
+export function pourQui(cible: string, p: { role: Role; reserveCetteSemaine: boolean }): boolean {
+  // Les gens de la cantine (admin, responsable) écrivent les messages, ils n'en reçoivent pas.
+  if (estCantine(p.role)) return false;
   if (cible === "tous") return true;
   if (cible === "convives") return p.role === "convive";
   if (cible === "parents") return p.role === "parent";

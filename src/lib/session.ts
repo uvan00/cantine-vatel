@@ -2,26 +2,25 @@ import "server-only";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { accueilDe, lireRole, type Role } from "@/lib/roles";
 
 // Qui est connecté, et ce qu'il a le droit de voir. Chaque page et chaque action serveur passe par ici :
 // la vérification se fait côté serveur, jamais dans le navigateur.
 
-export type Role = "convive" | "parent" | "admin";
+export type { Role } from "@/lib/roles";
+export { accueilDe, CANTINE, estCantine } from "@/lib/roles";
 /** La personne connectée ; `photo` : l'adresse de sa photo de profil, ou null (les initiales la remplacent). */
 export type Moi = { id: string; nom: string; email: string; role: Role; photo: string | null };
-
-const ROLES: readonly string[] = ["convive", "parent", "admin"];
 
 /** La personne connectée, ou null. */
 export async function moi(): Promise<Moi | null> {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) return null;
-  const role = (s.user as { role?: string | null }).role ?? "convive";
-  return { id: s.user.id, nom: s.user.name, email: s.user.email, role: (ROLES.includes(role) ? role : "convive") as Role, photo: s.user.image ?? null };
+  const u = s.user as typeof s.user & { role?: string | null; actif?: boolean | null };
+  // Un compte désactivé par l'admin (un responsable parti) n'entre plus, même avec une session encore ouverte.
+  if (u.actif === false) return null;
+  return { id: u.id, nom: u.name, email: u.email, role: lireRole(u.role), photo: u.image ?? null };
 }
-
-/** La page d'accueil de chaque rôle. */
-export const accueilDe = (role: Role) => (role === "admin" ? "/admin" : role === "parent" ? "/parent" : "/menu");
 
 /**
  * Pour une page : exige une personne connectée, avec l'un de ces rôles. Sinon, renvoie vers la connexion ou vers

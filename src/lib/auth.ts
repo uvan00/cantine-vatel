@@ -17,6 +17,8 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       role: { type: "string", required: false, input: false, defaultValue: "convive" },
+      // Un responsable désactivé par l'admin : sa session ne vaut plus rien (src/lib/session.ts, moi).
+      actif: { type: "boolean", required: false, input: false, defaultValue: true },
     },
   },
   emailAndPassword: { enabled: true, minPasswordLength: 8, autoSignIn: true },

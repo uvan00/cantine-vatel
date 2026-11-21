@@ -34,7 +34,7 @@ export function ReglagesClient({ initial }: { initial: Reglages }) {
 
   return (
     <div className="max-w-[720px] space-y-8">
-      <EnTetePage titre="Réglages" sousTitre="L'heure de clôture des réservations et les heures de passage" />
+      <EnTetePage titre="Réglages" sousTitre="L'heure de clôture des réservations, les heures de passage et l'équipe de la cantine" />
 
       <section className="space-y-4">
         <STitreSection>Réservations</STitreSection>
