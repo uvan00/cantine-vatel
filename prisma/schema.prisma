@@ -37,6 +37,9 @@ model User {
   rechargesRecues    Recharge[]    @relation("beneficiaire")
   rechargesDemandees Recharge[]    @relation("demandeur")
   notes              Note[]
+  favoris            Favori[]
+  demandes           DemandeRepas[]
+  lectures           MessageLu[]
 
   @@unique([email])
   @@map("user")
@@ -108,6 +111,13 @@ model Profil {
   codeFamille String @unique
   /// Sous ce solde, le convive et son parent sont prévenus.
   seuilAlerte Int    @default(2000)
+  /// Plafond des repas d'une semaine (du lundi au dimanche), en francs ; vide : pas de plafond (src/lib/solde.ts).
+  plafondSemaine Int?
+  /// normal | reduit | personnel : prévu pour des tarifs réduits. Aucune règle ne l'applique encore : chaque repas
+  /// est payé au prix du plat.
+  tarif       String  @default("normal")
+  /// La carte de cantine : 32 caractères au hasard, portés par son QR ; vide tant qu'elle n'a pas été montrée.
+  carte       String? @unique
 }
 
 model LienParent {
@@ -135,6 +145,8 @@ model Plat {
   creeLe      DateTime   @default(now())
   menus       MenuJour[]
   notes       Note[]
+  favoris     Favori[]
+  recette     LigneRecette[]
 }
 
 /// Un plat au menu d'un jour, avec son prix de ce jour-là.
@@ -147,7 +159,10 @@ model MenuJour {
   /// Portions prévues ; vide : pas de limite.
   portions     Int?
   epuise       Boolean       @default(false)
+  /// Les restes pesés après le service, en grammes ; vide tant que la cantine n'a rien pesé (src/lib/restes.ts).
+  restes       Int?
   reservations Reservation[]
+  demandes     DemandeRepas[]
 
   @@unique([jour, platId])
   @@index([jour])
@@ -168,6 +183,8 @@ model Reservation {
   jeton      String      @unique
   /// 6 caractères sans ambiguïté, à taper au comptoir si la caméra ne lit pas.
   code       String
+  /// L'heure de passage choisie (« 12:15 ») quand la cantine a ouvert des créneaux ; vide sinon (src/lib/creneaux.ts).
+  creneau    String?
   creeLe     DateTime    @default(now())
   serviLe    DateTime?
   annuleLe   DateTime?
@@ -253,4 +270,148 @@ model Note {
   note          Int
   mot           String      @default("")
   creeLe        DateTime    @default(now())
+}
+
+// ── Ajouts du 21/11/2026 : réglages, créneaux, demandes hors délai, messages, favoris, recettes ─────────────────
+
+/// Les réglages de la cantine : une seule ligne (id 1). Sans ligne, les valeurs par défaut s'appliquent (src/lib/reglages.ts).
+model Reglages {
+  id              Int     @id @default(1)
+  /// Heure de clôture des réservations du jour (6 à 12) : la cuisine sait alors combien de repas préparer.
+  heureCloture    Int     @default(9)
+  /// Vrai : le convive choisit son heure de passage (src/lib/creneaux.ts).
+  creneauxActifs  Boolean @default(false)
+  creneauDebut    String  @default("11:45")
+  creneauFin      String  @default("13:45")
+  creneauMinutes  Int     @default(15)
+  /// Passages au plus par créneau.
+  creneauCapacite Int     @default(40)
+  /// Les remises des tarifs, en pour cent du prix du plat : prévues, pas encore appliquées (aucun écran ne les règle).
+  remiseReduit    Int     @default(50)
+  remisePersonnel Int     @default(0)
+}
+
+/// Après la clôture, le convive demande un repas du jour ; la cantine l'accepte (une réservation à son nom) ou le refuse.
+model DemandeRepas {
+  id            String    @id @default(cuid())
+  conviveId     String
+  convive       User      @relation(fields: [conviveId], references: [id], onDelete: Cascade)
+  menuJourId    String
+  menuJour      MenuJour  @relation(fields: [menuJourId], references: [id], onDelete: Cascade)
+  jour          String
+  /// en_attente | acceptee | refusee
+  etat          String    @default("en_attente")
+  /// La réservation faite en acceptant.
+  reservationId String?
+  creeLe        DateTime  @default(now())
+  traiteeLe     DateTime?
+
+  @@index([jour, etat])
+  @@index([conviveId, jour])
+}
+
+/// Un message de la cantine aux familles (src/lib/messages.ts).
+model Message {
+  id       String      @id @default(cuid())
+  titre    String
+  texte    String
+  /// tous | convives | parents | semaine (ceux qui ont réservé cette semaine, et leurs parents)
+  cible    String      @default("tous")
+  epingle  Boolean     @default(false)
+  auteurId String
+  creeLe   DateTime    @default(now())
+  lectures MessageLu[]
+
+  @@index([creeLe])
+}
+
+model MessageLu {
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  luLe      DateTime @default(now())
+
+  @@id([messageId, userId])
+}
+
+/// Un plat que le convive aime : une étoile sur sa carte, et une alerte quand il revient au menu.
+model Favori {
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platId String
+  plat   Plat     @relation(fields: [platId], references: [id], onDelete: Cascade)
+  creeLe DateTime @default(now())
+
+  @@id([userId, platId])
+}
+
+/// Un ingrédient de la cuisine, avec l'unité dans laquelle on le compte (src/lib/besoins.ts).
+model Ingredient {
+  id     String         @id @default(cuid())
+  nom    String         @unique
+  /// g | ml | piece : en grammes, en millilitres ou à la pièce
+  unite      String           @default("g")
+  lignes     LigneRecette[]
+  /// Ce qui entre dans la réserve et en sort (lot 2 des besoins, 21/11/2026).
+  mouvements MouvementStock[]
+}
+
+/// Une ligne de la fiche recette d'un plat : la quantité d'un ingrédient pour une portion.
+model LigneRecette {
+  platId       String
+  plat         Plat       @relation(fields: [platId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  /// Pour une portion, dans l'unité de l'ingrédient, en entier.
+  quantite     Int
+
+  @@id([platId, ingredientId])
+}
+
+/// Une dépense de la cantine (comptabilité, demande du propriétaire du 21/11/2026) : la cantine la note à la main, et
+/// elle entre dans le bilan (src/lib/comptabilite.ts). Elle ne touche aucun solde d'élève.
+model Depense {
+  id          String   @id @default(cuid())
+  /// « 2026-11-21 » : le jour où la cantine a payé.
+  jour        String
+  /// ingredients | gaz | emballages | salaires | autres
+  categorie   String
+  libelle     String
+  /// En francs CFA entiers, toujours positif.
+  montant     Int
+  /// À qui la cantine a payé ; vide si elle ne le précise pas.
+  fournisseur String   @default("")
+  /// especes | mobile_money | virement | autre
+  moyen       String   @default("especes")
+  /// Le nom de l'administrateur qui l'a notée.
+  noteePar    String
+  creeLe      DateTime @default(now())
+
+  @@index([jour])
+}
+
+/// Ce qui entre dans la réserve de la cuisine et en sort, ingrédient par ingrédient (lot 2 des besoins, 21/11/2026).
+/// Le stock d'un ingrédient est la somme de ses mouvements, dans son unité (src/lib/stock.ts).
+model MouvementStock {
+  id           String     @id @default(cuid())
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  /// livraison | sortie | inventaire
+  genre        String
+  /// Signée, dans l'unité de l'ingrédient : + une livraison, - une sortie, l'écart compté à l'inventaire.
+  quantite     Int
+  /// Le jour servi, pour une sortie ; le jour de la livraison ou du comptage sinon.
+  jour         String
+  /// Ce que la livraison a coûté, en F CFA entiers ; null sinon.
+  prix         Int?
+  /// L'id de la Depense notée en même temps (catégorie « ingredients »), pour une livraison payée.
+  depenseId    String?
+  note         String     @default("")
+  /// Le nom de l'administrateur qui l'a noté.
+  noteePar     String
+  creeLe       DateTime   @default(now())
+
+  @@index([ingredientId])
+  @@index([jour])
 }
